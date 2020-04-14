@@ -5,6 +5,7 @@ import Control.Monad
 import Control.Exception
 import Control.Applicative
 
+
 newtype Parser a = Parser {
         parse :: String -> Maybe (a, String)
     }
@@ -56,7 +57,7 @@ char c = satisfy (==c)
 space :: Parser Char
 space = satisfy isSpace
 
--- parse a digit
+-- parse a number
 digit :: Parser Char
 digit = satisfy isDigit
 
@@ -116,9 +117,11 @@ endByE sep a = many (a <* sep)
 -- parse the left combined chain
 chainl :: Parser (a -> a -> a) -> Parser a -> Parser a
 chainl op p = do
+    skipMany space
     x <- p
     for_rest x where
         for_rest x = (do
+            skipMany space
             f <- op
             y <- p
             for_rest $ f x y) <|> return x
@@ -131,4 +134,22 @@ chainr op p = do
         rest <- chainr op p
         return (f x rest)) <|> return x
 
+
+-- real lexical
+number_n0 :: Parser Char
+number_n0 = satisfy (`elem` "123456789")
+
+str :: Parser String
+str = skipMany space >> between (char '"') (many (satisfy valid)) (char '"') where
+    valid c = let inp = ord c in
+        if inp == 32 || inp == 33 || (35 <= inp && inp <= 126)
+        then True
+        else False
+        
+u_integer :: Parser Int
+u_integer = read <$> do
+    skipMany space
+    d1 <- number_n0
+    dx <- many digit
+    return $ d1 : dx
 
