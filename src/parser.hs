@@ -1,0 +1,134 @@
+module Parser where
+
+import Data.Char
+import Control.Monad
+import Control.Exception
+import Control.Applicative
+
+newtype Parser a = Parser {
+        parse :: String -> Maybe (a, String)
+    }
+
+instance Functor Parser where
+    -- fmap :: (a -> b) -> f a -> f b
+    -- pa :: Parser a
+    fmap f pa = Parser $ \inp ->
+        case parse pa inp of 
+            Nothing -> Nothing
+            Just (x, xs) -> Just (f x, xs)
+
+instance Applicative Parser where
+    -- pure :: a -> f a
+    pure x = Parser $ \s -> Just (x, s)
+    -- (<*>) :: f (a -> b) -> f a -> f b
+    pab <*> pa = Parser $ \inp ->
+        case parse pab inp of
+            Nothing -> Nothing
+            Just (fab, rst) -> parse (fab <$> pa) rst
+
+instance Monad Parser where
+    -- (>>=) :: m a -> (a -> m b) -> m b
+    pa >>= apb = Parser $ \inp ->
+        case parse pa inp of
+            Nothing -> Nothing
+            Just (a, rst) -> parse (apb a) rst
+
+instance Alternative Parser where
+    -- empty :: f a
+    empty = Parser $ const Nothing
+    -- (<|>) :: f a -> f a -> f a
+    pa <|> pb = Parser $ \inp ->
+        case parse pa inp of
+            Nothing -> parse pb inp
+            x -> x
+
+satisfy :: (Char -> Bool) -> Parser Char
+satisfy f = Parser $ func where
+    func "" = Nothing
+    func (x:xs) | f x = Just (x, xs)
+                | otherwise = Nothing
+
+-- parse a char
+char :: Char -> Parser Char
+char c = satisfy (==c)
+
+-- parse a sapce
+space :: Parser Char
+space = satisfy isSpace
+
+-- parse a digit
+digit :: Parser Char
+digit = satisfy isDigit
+
+-- parse a letter
+letter :: Parser Char
+letter = satisfy isLetter
+
+-- parse a char belongs to cs
+oneOf :: [Char] -> Parser Char
+oneOf cs = satisfy (`elem` cs)
+
+-- parse a char not belongs to cs
+noneOf :: [Char] -> Parser Char
+noneOf cs = satisfy (not . (`elem` cs))
+
+-- parse a string
+string :: String -> Parser String
+string "" = return ""
+string str@(x:xs) = do
+    s <- char x
+    ss <- string xs
+    return str
+
+-- parser skips many char
+skipMany :: Parser a -> Parser ()
+skipMany p = many p >> return ()
+
+-- parser skips some char (1 at least)
+skipSome :: Parser a -> Parser ()
+skipSome p = some p >> return ()
+
+-- parse sth between sth
+between :: Parser o -> Parser a -> Parser c -> Parser a
+between o a c = o *> a <* c
+
+-- parse sth divied by sth
+sepBy :: Parser sep -> Parser a -> Parser [a]
+sepBy sep a = sepBy' sep a where
+    sepBy' :: Parser sep -> Parser a -> Parser [a]
+    sepBy' sep a = do
+        m1 <- a
+        m2 <- many (sep >> a)
+        return $ m1 : m2
+
+-- parse sth divied by sth (result can be [])
+sepByE :: Parser sep -> Parser a -> Parser [a]
+sepByE sep a = sepBy sep a <|> return []
+    
+-- parse sth end with sth
+endBy :: Parser sep -> Parser a -> Parser [a]
+endBy sep a = some (a <* sep)
+
+-- parse sth end with sth (result can be [])
+endByE :: Parser sep -> Parser a -> Parser [a]
+endByE sep a = many (a <* sep)
+
+-- parse the left combined chain
+chainl :: Parser (a -> a -> a) -> Parser a -> Parser a
+chainl op p = do
+    x <- p
+    for_rest x where
+        for_rest x = (do
+            f <- op
+            y <- p
+            for_rest $ f x y) <|> return x
+
+-- parse the right combined chain
+chainr :: Parser (a -> a -> a) -> Parser a -> Parser a
+chainr op p = do
+    x <- p
+    (do f <- op
+        rest <- chainr op p
+        return (f x rest)) <|> return x
+
+
