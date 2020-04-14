@@ -147,9 +147,18 @@ str = skipMany space >> between (char '"') (many (satisfy valid)) (char '"') whe
         else False
         
 u_integer :: Parser Int
-u_integer = read <$> do
+u_integer = read <$> ((do
     skipMany space
     d1 <- number_n0
     dx <- many digit
-    return $ d1 : dx
+    return $ d1 : dx) <|> string "0")
+
+integer :: Parser Int
+integer = do
+    op <- string "+" <|> string "-" <|> string ""
+    d  <- u_integer
+    case op of
+        ""  -> return d
+        "+" -> return d
+        "-" -> return (-1 * d)
 

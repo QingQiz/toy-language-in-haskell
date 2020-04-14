@@ -19,8 +19,6 @@
 <const_stmt> ::= const <const_def> ;
 <const_def>  ::= int <id> = <integer> {, <id> = <integer>}
                | char <id> = <char> {, <id> = <char>}
-<u_integer>  ::= <number_n0> { <number> }
-<integer>    ::= [+|-]? <u_integer> | 0
 <id>         ::= <alpha> {<alpha> | <number>}
 <declare_h>  ::= int <id> | char <id>
 <var_stmt>   ::= <v_declare>; { <v_declare>;  }
@@ -30,16 +28,12 @@
 <void_func>  ::= void <id> \(<param_list>\) \{ <stmt_sq \}
 <stmt_sq>    ::= [<const_stmt>] [<var_stmt>] <stmt_list>
 <param_list> ::= <type_id> <id> {, <type_id> <id>} | <empty>
-<expr>       ::= <add_op>? <factor> {<add_op> <factor>}
-<factor>     ::= <term> {<mul_op> <term>}
-<term>       ::= <id> | <idnetifier> \[ <expr> \] | <integer> | <char> | <func_call> | \(<expr>\)
+
 <stmt>       ::= <if_stmt> | <loop_stmt> | \{ <stmt_list> \} | <func_call> ; | <v_func_call> ; | <assig_stmt> ;
                | <read_stmt> ; | <write_stmt> ; | <empty> ; | <ret_stmt> ;
 <assig_stmt> ::= <id> = <expr> | id \[<expr>\] = <expr>
 <if_stmt>    ::= if \( <cond> \) <stmt> [else <stmt>]
 <cond>       ::= <bool_expr>
-<bool_expr>  ::= <cmp_expr> { <bool_op> <cmp_expr> }
-<cmp_expr>   ::= <expr> <cmp_op> <expr> | <expr>
 <loop_stmt>  ::= do <stmt> while \( <cond \)
                | for \( <id = <expr>; <cond> ; <assig_stmt> \) <stmt>
 <func_call>  ::= <id> \( <param_val> \)
@@ -49,6 +43,16 @@
 <read_stmt>  ::= scanf\( <id> {, <id> } \)
 <write_stmt> ::= printf\(<str>, <expr>\) | printf\(<str>\) | printf\(<expr>\)
 <ret_stmt>   ::= return [\(<expr>\)]
+
+<u_integer>  ::= <number_n0> { <number> } | 0
+<integer>    ::= [ + | - ] <u_integer>
+
+<expr>       ::= <bool_expr>
+<bool_expr>  ::= <cmp_expr> { <bool_op> <cmp_expr> }
+<cmp_expr>   ::= <arith_expr> <cmp_op> <arith_expr>
+<arith_expr> ::= [ + | - ] <factor> {<add_op> <factor>}
+<factor>     ::= <term> {<mul_op> <term>}
+<term>       ::= <id> | <idnetifier> \[ <expr> \] | <integer> | <char> | <func_call> | \(<expr>\)
 ```
 
 ## Build & Run
@@ -58,10 +62,10 @@
 
 ## TODO LIST
 
-- ~~Lexical~~
-- grammar
-  - ~~bool expr (|| &&)~~
-  - ~~cmp expr (> < >= <= == !=)~~
-  - ~~expr (+ - * /)~~
-- code generation
+- [x] Lexical
+- [ ] grammar
+  - [x] bool expr (|| &&)
+  - [x] cmp expr (> < >= <= == !=)
+  - [x] expr (+ - * /)
+- [ ] code generation
 
