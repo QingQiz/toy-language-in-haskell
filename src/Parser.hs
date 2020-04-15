@@ -134,18 +134,22 @@ chainr op p = do
         rest <- chainr op p
         return (f x rest)) <|> return x
 
+-- parse unary operation chain
+unaryOpChain:: Parser (a -> a) -> Parser a -> Parser a
+unaryOpChain op p = do
+    skipMany space
+    f <- many (many space >> op)
+    x <- p
+    return $ func f x where
+        func [] x = x
+        func (f1:fs) x = func fs $ f1 x
 
--- real lexical
+
+-- parse number not include 0
 number_n0 :: Parser Char
-number_n0 = satisfy (`elem` "123456789")
+number_n0 = oneOf "123456789"
 
-str :: Parser String
-str = skipMany space >> between (char '"') (many (satisfy valid)) (char '"') where
-    valid c = let inp = ord c in
-        if inp == 32 || inp == 33 || (35 <= inp && inp <= 126)
-        then True
-        else False
-        
+-- parse unsigned int
 u_integer :: Parser Int
 u_integer = read <$> ((do
     skipMany space
@@ -153,10 +157,12 @@ u_integer = read <$> ((do
     dx <- many digit
     return $ d1 : dx) <|> string "0")
 
+-- parse int
 integer :: Parser Int
 integer = do
+    skipMany space
     op <- string "+" <|> string "-" <|> string ""
-    d  <- u_integer
+    d  <- many space >> u_integer
     case op of
         ""  -> return d
         "+" -> return d
