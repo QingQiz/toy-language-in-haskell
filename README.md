@@ -7,17 +7,11 @@
 ```
 >>>> [_Not Yet] <<<<<
 <program>    ::= [<const_desc>] [<var_desc>] {<func_def>}
-<const_desc> ::= const <const_def> ; { const <const_def> }
-<const_def>  ::= int <id> = <integer> {, <id> = <integer>}
-               | char <id> = <char> {, <id> = <char>}
-
 <declare_h>  ::= int <id> | char <id>
-<var_desc>   ::= <var_def>; { <var_def>;  }
-<var_def>    ::= <type_id> (<id> | <id> \[<u_integer>\]}) {,(<id> | <id> \[<u_integer>\]})}
-<type_id>    ::= int | char
 
 <func>       ::= <declare_h> \(<param_list>\) \{ <comd_stmt> \}
 <void_func>  ::= void <id> \(<param_list>\) \{ <comd_stmt \}
+
 <comd_stmt>  ::= [<const_desc>] [<var_desc>] <stmt_list>
 <param_list> ::= <type_id> <id> {, <type_id> <id>} | <empty>
 
@@ -36,6 +30,13 @@
 <id>         ::= <alpha> {<alpha> | <number>}
 <str>        ::= "[32,33,35-126]"
 
+<const_desc> ::= const <const_def> ; { const <const_def> ; }
+<const_def>  ::= int <id> = <integer> {, <id> = <integer>}
+               | char <id> = <char> {, <id> = <char>}
+<var_desc>   ::= <var_def>; { <var_def>;  }
+<var_def>    ::= <type_id> (<id> | <id> \[<u_integer>\]}) {,(<id> | <id> \[<u_integer>\]})}
+
+
 <assig_stmt> ::= <id> = <expr> | id \[<expr>\] = <expr>
 <stmt_list>  ::= {<stmt>}
 <if_stmt>    ::= if \( <cond> \) <stmt> [else <stmt>]
@@ -51,6 +52,7 @@
 <unary_expr> ::= {!} <term>
 
 >>>> In Lexical <<<<<
+<type_id>    ::= int | char
 <add_op>     ::= + | -
 <mul_op>     ::= * | /
 <cmp_op>     ::= > | < | >= | <= | != | ==
@@ -78,18 +80,23 @@
     - [x] cmp expr (> < >= <= == !=)
     - [x] expr (+ - * /)
     - [x] id, array
-    - [ ] char
-    - [ ] func\_call
+    - [x] char
+    - [ ] func call
   - [ ] stmt
     - [x] if stmt
     - [x] loop stmt
     - [x] stmt list
     - [x] assig stmt
     - [x] empty stmt
-    - [ ] func\_call
+    - [ ] func call
     - [ ] read stmt
     - [ ] write stmt
     - [ ] ret stmt
-  - [ ] ...
+  - [ ] program
+    - [x] const desc
+    - [x] var desc
+    - [ ] func def
+    - [ ] ...
+- [ ] error report
 - [ ] code generation
 
