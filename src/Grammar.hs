@@ -69,7 +69,7 @@ ident  = Identifier <$> id_parser where
         return $ f1 ++ fo
 
 str :: Parser Ast
-str = fmap Str $ skipMany space >> between (char '"') valid (char '"') where
+str = fmap Str $ between (spcChar '"') valid (char '"') where
     valid = many $ satisfy (\inp ->
         let o = ord inp in
             if o == 32 || o == 33 || (35 <= o && o <= 126)
@@ -79,20 +79,24 @@ str = fmap Str $ skipMany space >> between (char '"') valid (char '"') where
 array :: Parser Ast
 array = do
     l <- ident
-    r <- between (many space >> char '[') expr (many space >> char ']')
+    r <- between (spcChar '[') expr (spcChar ']')
     return $ Array l r
 
 assign :: Parser Ast
 assign = do
     l <- array <|> ident
-    many space >> char '='
+    spcChar '='
     r <- expr
     return $ Assign l r
+
+nothing :: Parser Ast
+nothing = string "" >> return Empty
 
 
 ----------------------------------------------------------
 -- expression
 expr = bool_expr
+cond = bool_expr
 
 bool_expr :: Parser Ast
 bool_expr = chainl (pBinValS "&&" And <|> pBinValS "||" Or) cmp_expr where
@@ -128,44 +132,39 @@ term = (Number <$> integer <|> between (char '(') expr (char ')')) <|>
 -- stmt
 stmt :: Parser Ast
 stmt = if_stmt <|> stmt_list <|> loop_stmt  <|>
-      (nothing <* (many space >> char ';')) <|> -- empty
-      (assign  <* (many space >> char ';')) -- assig_stmt
-
-nothing :: Parser Ast
-nothing = string "" >> return Empty
+      (nothing <* (spcChar ';')) <|> -- empty
+      (assign  <* (spcChar ';')) -- assig_stmt
 
 stmt_list :: Parser Ast
-stmt_list = fmap StmtList $ between open valid close where
-    open  = many space >> char '{'
-    close = many space >> char '}'
+stmt_list = fmap StmtList $ between (spcChar '{') valid (spcChar '}') where
     valid = many (many space >> stmt)
     
 if_stmt :: Parser Ast
 if_stmt = do
-    many space >> string "if"
-    cond <- many space >> between (char '(') expr (many space >> char ')')
-    cond_stmt <- many space >> stmt
-    else_stmt <- many space >> ((string "else" >> stmt) <|> nothing)
-    return $ IfStmt cond cond_stmt else_stmt
+    spcStr "if"
+    c  <- between (spcChar '(') cond (spcChar ')')
+    cs <- many space >> stmt
+    es <- many space >> ((string "else" >> stmt) <|> nothing)
+    return $ IfStmt c cs es
 
 loop_stmt :: Parser Ast
 loop_stmt = for_stmt <|> do_stmt where
     for_stmt = do
-        many space >> string "for" >> many space >> char '('
+        spcStr "for" >> spcChar '('
         a1 <- assign
-        many space >> char ';'
-        c  <- expr
-        many space >> char ';'
+        spcChar ';'
+        c  <- cond
+        spcChar ';'
         a2 <- assign
-        many space >> char ')'
+        spcChar  ')'
         s  <- stmt
         return $ ForStmt a1 c a2 s
     do_stmt  = do
-        many space >> string "do"
+        spcStr "do"
         s <- stmt
-        many space >> string "while" >> many space >> char '('
-        e <- expr
-        many space >> char ')'
+        spcStr "while" >> spcChar '('
+        e <- cond
+        spcChar ')'
         return $ DoStmt s e
 
 
@@ -175,6 +174,9 @@ pUnaryNode = return . UnaryNode
 pUnaryValue f a b = f a >> pUnaryNode b
 pBinNode = return . BinNode
 pBinVal f a b = f a >> pBinNode b
+
+spcChar inp = many space >> char inp
+spcStr  inp = many space >> string inp
 
 
 
