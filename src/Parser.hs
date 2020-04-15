@@ -95,12 +95,10 @@ between o a c = o *> a <* c
 
 -- parse sth divied by sth
 sepBy :: Parser sep -> Parser a -> Parser [a]
-sepBy sep a = sepBy' sep a where
-    sepBy' :: Parser sep -> Parser a -> Parser [a]
-    sepBy' sep a = do
-        m1 <- a
-        m2 <- many (sep >> a)
-        return $ m1 : m2
+sepBy sep a = do
+    m1 <- a
+    m2 <- many (sep >> a)
+    return $ m1 : m2
 
 -- parse sth divied by sth (result can be [])
 sepByE :: Parser sep -> Parser a -> Parser [a]

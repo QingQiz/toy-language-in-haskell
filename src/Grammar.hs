@@ -8,22 +8,31 @@ import Control.Applicative
 
 data Ast = Empty
          | Number Int
+         | Ch Char
          | Str String
          | Identifier String
          | BinNode Op Ast Ast
          | UnaryNode Op Ast
          | IfStmt Ast Ast Ast -- ifstmt expr stmt else_stmt
-         | StmtList [Ast]
+         | StmtList [Ast] -- stmtlist [stmt]
          | ForStmt Ast Ast Ast Ast -- forstmt beg cond step loop_stmt
          | DoStmt Ast Ast -- dostmt loop_stmt cond
          | Array Ast Ast -- array id index
          | Assign Ast Ast -- assign left right
+         | Program Ast Ast [Ast] -- program const_desc var_desc [func_def]
+         | ConstDef Type [(Ast, Ast)] -- ConstDef type [(l1, r1), (l2, r2)]
+         | VarDef Type [Ast] -- VarDef type [dec]
+
 
 data Op = Not
         | Mul | Div
         | Add | Sub
         | Gt  | Ls  | GE  | LE  | Equ | Neq
         | And | Or
+
+data Type = Int
+          | Char deriving (Show)
+
 
 instance Show Op where
     show Not = "!"
@@ -47,6 +56,7 @@ instance Show Op where
 instance Show Ast where
     show Empty = "Empty"
     show (Number x) = show x
+    show (Ch x) = show x
     show (Str p) = show p
     show (Identifier p) = show p
     show (BinNode op l r) = "(" ++ show op ++ " " ++ show l ++ " " ++ show r++ ")"
@@ -55,8 +65,10 @@ instance Show Ast where
     show (StmtList ss) = show ss
     show (ForStmt b c s l) = "(for " ++ show b ++ " ; " ++ show c ++ " ; " ++ show s ++ " ; " ++show l ++ ")"
     show (DoStmt l c) = "(do " ++ show l ++ " ; " ++ show c ++ ")"
-    show (Array a b) = show a ++ "["++ show b ++"]"
+    show (Array a b) = "(arr " ++ show a ++ " "++ show b ++ ")"
     show (Assign a b) = "(= " ++ show a ++ " " ++ show b ++ ")"
+    show (ConstDef t l) = "(CDef " ++ show t ++ " " ++ show l ++ ")"
+    show (VarDef t l) = "(VDef " ++ show t ++ " " ++ show l ++ ")"
 
 
 ----------------------------------------------------------
@@ -68,6 +80,10 @@ ident  = Identifier <$> id_parser where
         fo <- many (letter <|> digit <|> char '_')
         return $ f1 ++ fo
 
+ch :: Parser Ast
+ch = fmap Ch $ between (spcChar '\'') valid (char '\'') where
+    valid = satisfy $ \inp -> True
+
 str :: Parser Ast
 str = fmap Str $ between (spcChar '"') valid (char '"') where
     valid = many $ satisfy (\inp ->
@@ -75,6 +91,12 @@ str = fmap Str $ between (spcChar '"') valid (char '"') where
             if o == 32 || o == 33 || (35 <= o && o <= 126)
             then True
             else False)
+
+int :: Parser Ast
+int = Number <$> integer
+
+uint :: Parser Ast
+uint = Number <$> u_integer
 
 array :: Parser Ast
 array = do
@@ -125,7 +147,7 @@ unary_expr = unaryOpChain (pUnaryValue char '!' Not) term
 
 term :: Parser Ast
 term = (Number <$> integer <|> between (spcChar '(') expr (spcChar ')')) <|>
-       array <|> ident
+       array <|> ident <|> ch
 
 
 ----------------------------------------------------------
@@ -134,6 +156,8 @@ stmt :: Parser Ast
 stmt = if_stmt <|> stmt_list <|> loop_stmt  <|>
       (nothing <* (spcChar ';')) <|> -- empty
       (assign  <* (spcChar ';')) -- assig_stmt
+
+-- TODO Compound statement
 
 stmt_list :: Parser Ast
 stmt_list = fmap StmtList $ between (spcChar '{') valid (spcChar '}') where
@@ -169,11 +193,56 @@ loop_stmt = for_stmt <|> do_stmt where
 
 
 ----------------------------------------------------------
+-- program
+-- program :: Parser Ast
+-- program = do
+    -- cd <- const_desc <|> nothing
+    -- vd <- var_desc   <|> nothing
+    -- fd <- many func_def
+    -- return $ cd vd fd
+--
+const_desc :: Parser [Ast]
+const_desc = many (spcStr "const " >> const_def <* spcChar ';')
+
+const_def  :: Parser Ast
+const_def  = (do
+    many space
+    f <- (string "int " >> pConstNode Int) <|> (string "char " >> pConstNode Char)
+    r <- sepBy (spcChar ',') pone
+    return $ f r) where
+    pone = do
+        l <- ident
+        spcChar '='
+        r <- int <|> ch
+        return $ (l, r)
+
+
+var_desc :: Parser [Ast]
+var_desc = many (var_def <* spcChar ';')
+
+var_def :: Parser Ast
+var_def = (do
+    many space
+    f <- (string "int " >> pVarNode Int) <|> (string "char " >> pVarNode Char)
+    r <- sepBy (spcChar ',') (array_def <|> ident)
+    return $ f r) where
+    array_def = do
+        l <- ident
+        r <- between (spcChar '[') uint (spcChar ']')
+        return $ Array l r
+
+
+
+----------------------------------------------------------
 --  help functions
 pUnaryNode = return . UnaryNode
 pUnaryValue f a b = f a >> pUnaryNode b
+
 pBinNode = return . BinNode
 pBinVal f a b = f a >> pBinNode b
+
+pConstNode = return . ConstDef
+pVarNode = return . VarDef
 
 spcChar inp = many space >> char inp
 spcStr  inp = many space >> string inp
@@ -195,6 +264,10 @@ test_stmt = do
         \ } while (1 ) ;")
 
 test_expr = do
-    putStrLn.show $ (parse expr "  -! 1 + !!!! ! !2* 3 / (4 -5 - 6 ) || 1 > a  [1* 2 ] - 3 != 4  ")
+    putStrLn.show $ (parse expr "  -! 1 + !!!! ! !2* 3 / (4 -5 - '\'' ) || 1 > a  [1* 2 ] - 3 != 4  ")
 
+test_const_desc = do
+    putStrLn.show $ (parse const_desc "  const    int a1 = 1 , a2 = 2 ; const char a3 = 'c', a4 = 'd' ; ")
 
+test_var_desc = do
+    putStrLn.show $ (parse var_desc "  int a1 [ 1 ]  , a2   ; char a3 , a4 [ 4 ]  ; ")
