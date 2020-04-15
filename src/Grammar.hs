@@ -56,7 +56,7 @@ instance Show Ast where
     show (ForStmt b c s l) = "(for " ++ show b ++ " ; " ++ show c ++ " ; " ++ show s ++ " ; " ++show l ++ ")"
     show (DoStmt l c) = "(do " ++ show l ++ " ; " ++ show c ++ ")"
     show (Array a b) = show a ++ "["++ show b ++"]"
-    show (Assign a b) = show a ++ "=" ++ show b
+    show (Assign a b) = "(= " ++ show a ++ " " ++ show b ++ ")"
 
 
 ----------------------------------------------------------
@@ -124,7 +124,7 @@ unary_expr :: Parser Ast
 unary_expr = unaryOpChain (pUnaryValue char '!' Not) term
 
 term :: Parser Ast
-term = (Number <$> integer <|> between (char '(') expr (char ')')) <|>
+term = (Number <$> integer <|> between (spcChar '(') expr (spcChar ')')) <|>
        array <|> ident
 
 
@@ -138,7 +138,7 @@ stmt = if_stmt <|> stmt_list <|> loop_stmt  <|>
 stmt_list :: Parser Ast
 stmt_list = fmap StmtList $ between (spcChar '{') valid (spcChar '}') where
     valid = many (many space >> stmt)
-    
+
 if_stmt :: Parser Ast
 if_stmt = do
     spcStr "if"
@@ -164,7 +164,7 @@ loop_stmt = for_stmt <|> do_stmt where
         s <- stmt
         spcStr "while" >> spcChar '('
         e <- cond
-        spcChar ')'
+        spcChar ')' >> spcChar ';'
         return $ DoStmt s e
 
 
@@ -178,5 +178,23 @@ pBinVal f a b = f a >> pBinNode b
 spcChar inp = many space >> char inp
 spcStr  inp = many space >> string inp
 
+
+----------------------------------------------------------
+-- test
+test_stmt = do
+    putStrLn.show $ (parse stmt
+        "do {\
+            \ for ( a = 1-2-3; a < 1 || a > 3 ; a = a * 2 ) {\
+                \ do \
+                    \ if ( 1 ) ; \
+                    \ else \
+                        \ if ( 2 ) ; \
+                \ while ( 0 ) ; \
+                \ a [ 1 ] = 2 ; ; \
+            \ } \
+        \ } while (1 ) ;")
+
+test_expr = do
+    putStrLn.show $ (parse expr "  -! 1 + !!!! ! !2* 3 / (4 -5 - 6 ) || 1 > a  [1* 2 ] - 3 != 4  ")
 
 
