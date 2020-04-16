@@ -65,8 +65,25 @@
 
 ## Build & Run
 
-> not availalbe
+### Build
 
+```shell
+make
+```
+
+### Run
+
+currently we can pass --ast and generate an AST
+
+```
+./cpr --ast path-to-file
+```
+
+### Test
+
+```
+make test
+```
 
 ## TODO LIST
 
