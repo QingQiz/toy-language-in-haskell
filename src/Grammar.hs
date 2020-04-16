@@ -1,4 +1,4 @@
-module Grammar where
+module Grammar (Ast, build_ast) where
 
 import Parser
 import Data.Char
@@ -91,6 +91,9 @@ instance Show Ast where
     show (Rd i) = "(Read  " ++ show i ++ ")"
     show (Wt a b) = "(Write " ++ show a ++ " " ++ show b ++ ")"
 
+
+build_ast :: String -> Maybe (Ast, String)
+build_ast = parse program
 
 ----------------------------------------------------------
 -- sig
@@ -220,11 +223,11 @@ loop_stmt :: Parser Ast
 loop_stmt = for_stmt <|> do_stmt where
     for_stmt = do
         spcStr "for" >> spcChar '('
-        a1 <- assign
+        a1 <- assign <|> nothing
         spcChar ';'
-        c  <- cond
+        c  <- cond   <|> nothing
         spcChar ';'
-        a2 <- assign
+        a2 <- assign <|> nothing
         spcChar  ')'
         s  <- stmt
         return $ ForStmt a1 c a2 s
@@ -247,8 +250,8 @@ func_call = (do
 
 ret :: Parser Ast
 ret = do
-    spcStr "return "
-    e <- between (spcChar '(') expr (spcChar ')')
+    spcStr "return"
+    e <- between (spcChar '(') expr (spcChar ')') <|> nothing
     return $ Ret e
 
 
@@ -283,6 +286,7 @@ program = do
     cd <- const_desc
     vd <- var_desc
     fd <- many func_def
+    many space
     return $ Program cd vd fd
 
 
