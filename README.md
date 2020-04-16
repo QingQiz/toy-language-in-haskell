@@ -6,26 +6,6 @@
 
 ```
 >>>> [_Not Yet] <<<<<
-<program>    ::= [<const_desc>] [<var_desc>] {<func_def>}
-<declare_h>  ::= int <id> | char <id>
-
-<func>       ::= <declare_h> \(<param_list>\) \{ <comd_stmt> \}
-<void_func>  ::= void <id> \(<param_list>\) \{ <comd_stmt \}
-
-<comd_stmt>  ::= [<const_desc>] [<var_desc>] <stmt_list>
-<param_list> ::= <type_id> <id> {, <type_id> <id>} | <empty>
-
-<func_call>  ::= <id> \( <param_val> \)
-<v_func_call>::= <id> \( <param_val> \)
-<param_val>  ::= <expr> {, <expr> } | <empty>
-<read_stmt>  ::= scanf\( <id> {, <id> } \)
-<write_stmt> ::= printf\(<str>, <expr>\) | printf\(<str>\) | printf\(<expr>\)
-<ret_stmt>   ::= return [\(<expr>\)]
-
-<term>       ::= <id> | <idnetifier> \[ <expr> \] | <integer> | <char> | <func_call> | \(<expr>\)
-<stmt>       ::= <if_stmt> | <loop_stmt> | \{ <stmt_list> \} | <func_call> ; | <v_func_call> ; | <assig_stmt> ;
-               | <read_stmt> ; | <write_stmt> ; | <empty> ; | <ret_stmt> ;
-
 >>>> Implemented  Grammar <<<<<
 <id>         ::= <alpha> {<alpha> | <number>}
 <str>        ::= "[32,33,35-126]"
@@ -36,12 +16,28 @@
 <var_desc>   ::= <var_def>; { <var_def>;  }
 <var_def>    ::= <type_id> (<id> | <id> \[<u_integer>\]}) {,(<id> | <id> \[<u_integer>\]})}
 
+<program>    ::= [<const_desc>] [<var_desc>] {<func_def>}
+<declare_h>  ::= int <id> | char <id>
+<func>       ::= <declare_h> \(<param_list>\) \{ <comd_stmt> \}
+<void_func>  ::= void <id> \(<param_list>\) \{ <comd_stmt \}
+<func_call>  ::= <id> \( <param_val> \)
+<v_func_call>::= <id> \( <param_val> \)
+<param_val>  ::= <expr> {, <expr> } | <empty>
+
+<stmt>       ::= <if_stmt> | <loop_stmt> | \{ <stmt_list> \} | <func_call> ; | <v_func_call> ; | <assig_stmt> ;
+               | <read_stmt> ; | <write_stmt> ; | <empty> ; | <ret_stmt> ;
+<ret_stmt>   ::= return [\(<expr>\)]
+<comd_stmt>  ::= [<const_desc>] [<var_desc>] <stmt_list>
+<param_list> ::= <type_id> <id> {, <type_id> <id>} | <empty>
 
 <assig_stmt> ::= <id> = <expr> | id \[<expr>\] = <expr>
 <stmt_list>  ::= {<stmt>}
 <if_stmt>    ::= if \( <cond> \) <stmt> [else <stmt>]
 <loop_stmt>  ::= do <stmt> while \( <cond \)
                | for \( <assig_stmt> ; <cond> ; <assig_stmt> \) <stmt>
+<read_stmt>  ::= scanf\( <id> {, <id> } \)
+<write_stmt> ::= printf\(<str>, <expr>\) | printf\(<str>\) | printf\(<expr>\)
+
 
 <cond>       ::= <bool_expr>
 <expr>       ::= <bool_expr>
@@ -50,6 +46,7 @@
 <arith_expr> ::= [ + | - ] <factor> {<add_op> <factor>}
 <factor>     ::= <unary_expr> {<mul_op> <unary_expr>}
 <unary_expr> ::= {!} <term>
+<term>       ::= <id> | <idnetifier> \[ <expr> \] | <integer> | <char> | <func_call> | \(<expr>\)
 
 >>>> In Lexical <<<<<
 <type_id>    ::= int | char
@@ -74,29 +71,30 @@
 ## TODO LIST
 
 - [x] Lexical
-- [ ] grammar
-  - [ ] expr
+- [x] grammar
+  - [x] expr
     - [x] bool expr (|| && !)
     - [x] cmp expr (> < >= <= == !=)
     - [x] expr (+ - * /)
     - [x] id, array
     - [x] char
-    - [ ] func call
-  - [ ] stmt
+    - [x] func call
+  - [x] stmt
     - [x] if stmt
     - [x] loop stmt
+    - [x] comd stmt
     - [x] stmt list
     - [x] assig stmt
     - [x] empty stmt
-    - [ ] func call
-    - [ ] read stmt
-    - [ ] write stmt
-    - [ ] ret stmt
-  - [ ] program
+    - [x] func call
+    - [x] read stmt
+    - [x] write stmt
+    - [x] ret stmt
+  - [x] program
     - [x] const desc
     - [x] var desc
-    - [ ] func def
-    - [ ] ...
+    - [x] func def
+  - [x] AST
 - [ ] error report
 - [ ] code generation
 
