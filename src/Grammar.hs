@@ -106,12 +106,12 @@ ident  = Identifier <$> id_parser where
 
 
 ch :: Parser Ast
-ch = fmap Ch $ between (spcChar '\'') valid (char '\'') where
+ch = fmap Ch $ (spcChar '\'' *> valid <* char '\'') where
     valid = satisfy $ \inp -> True
 
 
 str :: Parser Ast
-str = fmap Str $ between (spcChar '"') valid (char '"') where
+str = fmap Str $ (spcChar '"' *> valid <* char '"') where
     valid = many $ satisfy (\inp ->
         let o = ord inp in
             if o == 32 || o == 33 || (35 <= o && o <= 126)
@@ -130,7 +130,7 @@ uint = Number <$> u_integer
 array :: Parser Ast
 array = do
     l <- ident
-    r <- between (spcChar '[') expr (spcChar ']')
+    r <- spcChar '[' *> expr <* spcChar ']'
     return $ Array l r
 
 
@@ -183,14 +183,14 @@ unary_expr = unaryOpChain (pUnaryValue char '!' Not) term
 
 
 term :: Parser Ast
-term = (Number <$> integer <|> between (spcChar '(') expr (spcChar ')')) <|>
+term = Number <$> integer  <|> (spcChar '(' *> expr <* spcChar ')') <|>
        func_call <|> array <|> ident <|> ch
 
 
 ----------------------------------------------------------
 -- stmt
 stmt :: Parser Ast
-stmt = if_stmt <|> between (spcChar '{') stmt_list (spcChar '}') <|> loop_stmt  <|>
+stmt = if_stmt <|> (spcChar '{' *> stmt_list <* spcChar '}') <|> loop_stmt  <|>
       ((rd <|> wt) <* spcChar ';') <|> -- read or write
       (ret         <* spcChar ';') <|> -- ret stmt
       (func_call   <* spcChar ';') <|> -- func_call
@@ -213,7 +213,7 @@ stmt_list = fmap StmtList $ many stmt
 if_stmt :: Parser Ast
 if_stmt = do
     spcStr "if"
-    c  <- between (spcChar '(') cond (spcChar ')')
+    c  <- spcChar '(' *> cond <* spcChar ')'
     cs <- many space >> stmt
     es <- many space >> ((string "else " >> stmt) <|> nothing)
     return $ IfStmt c cs es
@@ -243,7 +243,7 @@ loop_stmt = for_stmt <|> do_stmt where
 func_call :: Parser Ast
 func_call = (do
     l <- ident
-    r <- between (spcChar '(') valid (spcChar ')')
+    r <- spcChar '(' *> valid <* spcChar ')'
     return $ FuncCall l r ) where
     valid = sepByE (spcChar ',') expr
 
@@ -251,14 +251,14 @@ func_call = (do
 ret :: Parser Ast
 ret = do
     spcStr "return"
-    e <- between (spcChar '(') expr (spcChar ')') <|> nothing
+    e <- (spcChar '(' *> expr <* spcChar ')') <|> nothing
     return $ Ret e
 
 
 rd :: Parser Ast
 rd = do
     spcStr "scanf"
-    ids <- between (spcChar '(') (sepBy (spcChar ',') ident) (spcChar ')')
+    ids <- spcChar '(' *> sepBy (spcChar ',') ident <* spcChar ')'
     return $ Rd ids
 
 
@@ -319,7 +319,7 @@ var_def = (do
     return $ f r) where
     array_def = do
         l <- ident
-        r <- between (spcChar '[') uint (spcChar ']')
+        r <- spcChar '[' *> uint <* spcChar ']'
         return $ Array l r
 
 
@@ -328,8 +328,8 @@ func_def = (do
     many space
     f <- pFuncVal "int " FInt <|> pFuncVal "char " FChar <|> pFuncVal "void " FVoid
     fn <- ident
-    pl <- between (spcChar '(') valid (spcChar ')')
-    fb <- between (spcChar '{') comd_stmt (spcChar '}')
+    pl <- spcChar '(' *> valid <* spcChar ')'
+    fb <- spcChar '{' *> comd_stmt <* spcChar '}'
     return $ f fn pl fb) where
     valid = sepByE (spcChar ',') def_header
     def_header = do

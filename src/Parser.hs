@@ -69,10 +69,6 @@ letter = satisfy isLetter
 oneOf :: [Char] -> Parser Char
 oneOf cs = satisfy (`elem` cs)
 
--- parse a char not belongs to cs
-noneOf :: [Char] -> Parser Char
-noneOf cs = satisfy (not . (`elem` cs))
-
 -- parse a string
 string :: String -> Parser String
 string "" = return ""
@@ -80,18 +76,6 @@ string str@(x:xs) = do
     s <- char x
     ss <- string xs
     return str
-
--- parser skips many char
-skipMany :: Parser a -> Parser ()
-skipMany p = many p >> return ()
-
--- parser skips some char (1 at least)
-skipSome :: Parser a -> Parser ()
-skipSome p = some p >> return ()
-
--- parse sth between sth
-between :: Parser o -> Parser a -> Parser c -> Parser a
-between o a c = o *> a <* c
 
 -- parse sth divied by sth
 sepBy :: Parser sep -> Parser a -> Parser [a]
@@ -104,23 +88,13 @@ sepBy sep a = do
 sepByE :: Parser sep -> Parser a -> Parser [a]
 sepByE sep a = sepBy sep a <|> return []
     
--- parse sth end with sth
-endBy :: Parser sep -> Parser a -> Parser [a]
-endBy sep a = some (a <* sep)
-
--- parse sth end with sth (result can be [])
-endByE :: Parser sep -> Parser a -> Parser [a]
-endByE sep a = many (a <* sep)
-
 -- parse the left combined chain
 chainl :: Parser (a -> a -> a) -> Parser a -> Parser a
 chainl op p = do
-    skipMany space
-    x <- p
+    x <- many space >> p
     for_rest x where
         for_rest x = (do
-            skipMany space
-            f <- op
+            f <- many space >> op
             y <- p
             for_rest $ f x y) <|> return x
 
@@ -135,8 +109,7 @@ chainr op p = do
 -- parse unary operation chain
 unaryOpChain:: Parser (a -> a) -> Parser a -> Parser a
 unaryOpChain op p = do
-    skipMany space
-    f <- many (many space >> op)
+    f <- many space >> many (many space >> op)
     x <- p
     return $ func f x where
         func [] x = x
@@ -150,15 +123,14 @@ number_n0 = oneOf "123456789"
 -- parse unsigned int
 u_integer :: Parser Int
 u_integer = read <$> ((do
-    skipMany space
-    d1 <- number_n0
+    d1 <- many space >> number_n0
     dx <- many digit
     return $ d1 : dx) <|> string "0")
 
 -- parse int
 integer :: Parser Int
 integer = do
-    skipMany space
+    many space
     op <- string "+" <|> string "-" <|> string ""
     d  <- many space >> u_integer
     case op of
