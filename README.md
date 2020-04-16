@@ -112,6 +112,10 @@ make test
     - [x] var desc
     - [x] func def
   - [x] AST
-- [ ] error report
+- [ ] Semantic Analysis
 - [ ] code generation
+- [ ] extra
+  - [ ] error reporter
+  - [ ] optimization
+  - [ ] ...
 
