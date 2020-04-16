@@ -1,6 +1,6 @@
 obj_name = cpr
 main_module = Main.hs
-src_dir = ./src
+src_dir = ./Libs
 src_file = $(shell echo $(src_dir)/*.hs)
 
 $(obj_name) : $(main_module) $(src_file)

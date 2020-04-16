@@ -1,99 +1,91 @@
 module Grammar (Ast, build_ast) where
 
 import Parser
+import ParserAst
+
 import Data.Char
 import Control.Monad
 import Control.Exception
 import Control.Applicative
 
 
-data Ast = Empty
-         | Number     Int
-         | Ch         Char
-         | Str        String
-         | Identifier String
-         | Array      Ast Ast -- array id index
+----------------------------------------------------------
+-- basic parser
+char :: Char -> Parser Char
+char c = satisfy (==c)
+spcChar inp = many space >> char inp
 
-         | BinNode    Op Ast Ast
-         | UnaryNode  Op Ast
+space = satisfy isSpace
+digit = satisfy isDigit
+letter = satisfy isLetter
 
-         | IfStmt     Ast Ast Ast -- ifstmt expr stmt else_stmt
-         | StmtList   [Ast] -- stmtlist [stmt]
-         | ForStmt    Ast Ast Ast Ast -- forstmt beg cond step loop_stmt
-         | DoStmt     Ast Ast -- dostmt loop_stmt cond
-         | Assign     Ast Ast -- assign left right
-         | ComdStmt   [Ast] [Ast] Ast -- comdstmt const_desc var_desc stmt_list
+oneOf :: [Char] -> Parser Char
+oneOf cs = satisfy (`elem` cs)
 
-         | Program    [Ast] [Ast] [Ast] -- program const_desc var_desc [func_def]
-         | ConstDef   Type [(Ast, Ast)] -- ConstDef type [(l1, r1), (l2, r2)]
-         | VarDef     Type [Ast] -- VarDef type [dec]
-        -- FuncDef  name ret_type [(param_type, param_name)] func_body
-         | FuncDef    FunType Ast [(Type, Ast)] Ast
-         | FuncCall   Ast [Ast] -- FuncCall ident params
-         | Ret        Ast       -- return expr
-         | Rd         [Ast]     -- read [id]
-         | Wt         Ast Ast   -- write str expr
+string :: String -> Parser String
+string "" = return ""
+string str@(x:xs) = do
+    s <- char x
+    ss <- string xs
+    return str
+spcStr  inp = many space >> string inp
 
 
-data Op = Not
-        | Mul | Div
-        | Add | Sub
-        | Gt  | Ls  | GE  | LE  | Equ | Neq
-        | And | Or
+-- parse sth divied by sth
+sepBy :: Parser sep -> Parser a -> Parser [a]
+sepBy sep a = do
+    m1 <- a
+    m2 <- many (sep >> a)
+    return $ m1 : m2
 
 
-data Type = TInt | TChar deriving (Show)
+-- parse sth divied by sth (result can be [])
+sepByE :: Parser sep -> Parser a -> Parser [a]
+sepByE sep a = sepBy sep a <|> return []
 
 
-data FunType = FInt | FChar | FVoid deriving (Show)
+-- parse the left combined chain
+chainl :: Parser (a -> a -> a) -> Parser a -> Parser a
+chainl op p = do
+    x <- many space >> p
+    for_rest x where
+        for_rest x = (do
+            f <- many space >> op
+            y <- p
+            for_rest $ f x y) <|> return x
 
 
-instance Show Op where
-    show Not = "!"
-
-    show Mul = "*"
-    show Div = "/"
-
-    show Add = "+"
-    show Sub = "-"
-
-    show GE = ">="
-    show LE = "<="
-    show Gt = ">"
-    show Ls = "<"
-    show Equ = "=="
-    show Neq = "!="
-
-    show And = "&&"
-    show Or = "||"
-
-instance Show Ast where
-    show Empty = "Empty"
-    show (Number x) = show x
-    show (Ch x) = show x
-    show (Str p) = show p
-    show (Identifier p) = "(id " ++ show p ++ ")"
-    show (BinNode op l r) = "(" ++ show op ++ " " ++ show l ++ " " ++ show r++ ")"
-    show (UnaryNode op p) = "(" ++ show op ++ " " ++ show p ++ ")"
-    show (IfStmt c s es) = "(if " ++ show c ++ " ; " ++ show s ++ " ; " ++ show es ++ ")"
-    show (StmtList ss) = show ss
-    show (ForStmt b c s l) = "(for " ++ show b ++ " ; " ++ show c ++ " ; " ++ show s ++ " ; " ++show l ++ ")"
-    show (DoStmt l c) = "(do " ++ show l ++ " ; " ++ show c ++ ")"
-    show (Array a b) = "(arr " ++ show a ++ " "++ show b ++ ")"
-    show (Assign a b) = "(= " ++ show a ++ " " ++ show b ++ ")"
-    show (ConstDef t l) = "(CDef " ++ show t ++ " " ++ show l ++ ")"
-    show (VarDef t l) = "(VDef " ++ show t ++ " " ++ show l ++ ")"
-    show (FuncDef t n p b) = "(FunDef " ++ show t ++ " " ++ show n ++ " " ++ show p ++ " " ++ show b ++ ")"
-    show (ComdStmt c v s) = "(comdstmt " ++ show c ++ " " ++ show v ++ " " ++ show s ++ ")"
-    show (Program c v f) = "(Program " ++ show c ++ " " ++ show v ++ " " ++ show f ++ ")"
-    show (FuncCall f p) = "(Call " ++ show f ++ " " ++ show p ++ ")"
-    show (Ret e) = "(Ret " ++ show e ++ ")"
-    show (Rd i) = "(Read  " ++ show i ++ ")"
-    show (Wt a b) = "(Write " ++ show a ++ " " ++ show b ++ ")"
+-- parse unary operation chain
+unaryOpChain:: Parser (a -> a) -> Parser a -> Parser a
+unaryOpChain op p = do
+    f <- many space >> many (many space >> op)
+    x <- p
+    return $ func f x where
+        func [] x = x
+        func (f1:fs) x = func fs $ f1 x
 
 
-build_ast :: String -> Maybe (Ast, String)
-build_ast = parse program
+number_n0 :: Parser Char
+number_n0 = oneOf "123456789"
+
+
+u_integer :: Parser Int
+u_integer = read <$> ((do
+    d1 <- many space >> number_n0
+    dx <- many digit
+    return $ d1 : dx) <|> string "0")
+
+
+integer :: Parser Int
+integer = do
+    many space
+    op <- string "+" <|> string "-" <|> string ""
+    d  <- many space >> u_integer
+    case op of
+        ""  -> return d
+        "+" -> return d
+        "-" -> return (-1 * d)
+
 
 ----------------------------------------------------------
 -- sig
@@ -132,14 +124,6 @@ array = do
     l <- ident
     r <- spcChar '[' *> expr <* spcChar ']'
     return $ Array l r
-
-
-assign :: Parser Ast
-assign = do
-    l <- array <|> ident
-    spcChar '='
-    r <- expr
-    return $ Assign l r
 
 
 nothing :: Parser Ast
@@ -196,6 +180,14 @@ stmt = if_stmt <|> (spcChar '{' *> stmt_list <* spcChar '}') <|> loop_stmt  <|>
       (func_call   <* spcChar ';') <|> -- func_call
       (nothing     <* spcChar ';') <|> -- empty
       (assign      <* spcChar ';')     -- assig_stmt
+
+
+assign :: Parser Ast
+assign = do
+    l <- array <|> ident
+    spcChar '='
+    r <- expr
+    return $ Assign l r
 
 
 comd_stmt :: Parser Ast
@@ -353,7 +345,13 @@ pVarNode = return . VarDef
 pFuncNode = return . FuncDef
 pFuncVal s t = spcStr s >> pFuncNode t
 
-spcChar inp = many space >> char inp
-spcStr  inp = many space >> string inp
+satisfy :: (Char -> Bool) -> Parser Char
+satisfy f = Parser $ func where
+    func "" = Nothing
+    func (x:xs) | f x = Just (x, xs)
+                | otherwise = Nothing
+
+build_ast :: String -> Maybe (Ast, String)
+build_ast = parse program
 
 
