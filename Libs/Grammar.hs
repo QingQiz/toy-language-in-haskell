@@ -1,4 +1,4 @@
-module Grammar (Ast, build_ast) where
+module Grammar (build_ast) where
 
 import Parser
 import ParserAst
