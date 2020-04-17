@@ -88,7 +88,7 @@ make test
 ## TODO LIST
 
 - [x] Lexical
-- [x] grammar
+- [x] Grammar
   - [x] expr
     - [x] bool expr (|| && !)
     - [x] cmp expr (> < >= <= == !=)
@@ -113,6 +113,12 @@ make test
     - [x] func def
   - [x] AST
 - [ ] Semantic Analysis
+  - [x] const desc
+  - [x] var desc
+  - [x] func def
+  - [x] comd stmt
+  - [ ] stmt list
+  - [ ] ...
 - [ ] code generation
 - [ ] extra
   - [ ] error reporter

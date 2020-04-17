@@ -1,6 +1,8 @@
 const int MAXN = 10, MAXM = 20;
+const char a = 'a', b = 'b';
 
-int a[10], b[20];
+int a[10], b[20], c;
+char d, e, f[30];
 
 void init() {
     int i;
