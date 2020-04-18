@@ -117,9 +117,20 @@ make test
   - [x] var desc
   - [x] func def
   - [x] comd stmt
-  - [ ] stmt list
-  - [ ] ...
+  - [x] stmt list
+  - [x] for
+  - [x] do
+  - [x] read
+  - [x] write
+  - [x] return
+  - [x] func call
+  - [x] assign
+  - [ ] expr
+    - [x] bin node
+    - [x] unary node
+    - [ ] leaf node
 - [ ] code generation
+  - [ ] const expr
 - [ ] extra
   - [ ] error reporter
   - [ ] optimization
