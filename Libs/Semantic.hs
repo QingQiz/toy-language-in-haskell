@@ -4,6 +4,7 @@ import Grammar
 import TransAst
 import ParserAst
 
+import Data.Char
 import Data.Semigroup hiding ((<>))
 import Data.Map as Map hiding (foldl, map)
 
@@ -244,23 +245,24 @@ transStmtList (StmtList stmts) st = toStmtList $ transStmts stmts [] where
             flatten (Just (_, v, a)) (Just (_, v', a')) = Just (v, a, v', a')
             flatten _ _ = Nothing
 
-            forOp Mul a b = putValue a * b
-            forOp Div a b = putValue a / b
-            forOp Add a b = putValue a + b
-            forOp Sub a b = putValue a - b
-            forOp Gt  a b = putValue $ fromEnum a >  b
-            forOp Ls  a b = putValue $ fromEnum a <  b
-            forOp GE  a b = putValue $ fromEnum a >= b
-            forOp LE  a b = putValue $ fromEnum a <= b
-            forOp Equ a b = putValue $ fromEnum a == b
-            forOp Neq a b = putValue $ fromEnum a /= b
-            forOp And a b = putValue $ fromEnum a /= 0 && b /= 0
-            forOp Or  a b = putValue $ fromEnum a /= 0 || b /= 0
+            forOp :: Op -> Int -> Int -> Maybe (SType, ExprValue, Ast)
+            forOp Mul a b = putValue $ a * b
+            forOp Div a b = putValue $ a `div` b
+            forOp Add a b = putValue $ a + b
+            forOp Sub a b = putValue $ a - b
+            forOp Gt  a b = putValue $ fromEnum (a >  b)
+            forOp Ls  a b = putValue $ fromEnum (a <  b)
+            forOp GE  a b = putValue $ fromEnum (a >= b)
+            forOp LE  a b = putValue $ fromEnum (a <= b)
+            forOp Equ a b = putValue $ fromEnum (a == b)
+            forOp Neq a b = putValue $ fromEnum (a /= b)
+            forOp And a b = putValue $ fromEnum (a /= 0 && b /= 0)
+            forOp Or  a b = putValue $ fromEnum (a /= 0 || b /= 0)
 
             putValue v = Just (SInt, EStrictN v, Number v)
 
     transExpr' (UnaryNode Not a) = case transExpr' a of
-        Just (_, EStrictN n, _) -> let x = fromEnum n == 0 in Just (SInt ,EStrictN x, Number x)
+        Just (_, EStrictN n, _) -> let x = fromEnum $ n == 0 in Just (SInt ,EStrictN x, Number x)
         Just (_, ENot, (UnaryNode _ a)) -> Just (SInt, EVariable, a)
         Just (_, _, a) -> Just (SInt, EVariable, UnaryNode Not a)
         _ -> Nothing

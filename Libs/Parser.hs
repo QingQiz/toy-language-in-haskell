@@ -2,7 +2,6 @@ module Parser where
 
 import Data.Char
 import Control.Monad
-import Control.Exception
 import Control.Applicative
 
 
