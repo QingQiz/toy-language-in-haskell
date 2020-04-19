@@ -23,5 +23,6 @@ type SSize = Int
 data ExprValue = EStrictN Int
                | EVariable
                | ENot
+               | EArray
                deriving (Show)
 
