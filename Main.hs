@@ -1,23 +1,31 @@
 module Main where
 
 import Grammar
+import Semantic
+import ParserAst
+
 import System.Environment
 
-disp :: Maybe (Ast, String) -> String
-disp (Just (a, b)) = case b of
-    "" -> "Parse Success, AST:\n" ++ show a
-    _  -> "Parse Error On:\n" ++ b
-disp Nothing = "Nothing"
+dispP :: Maybe (Ast, String) -> String
+dispP (Just (a, b)) = case b of
+    "" -> show a
+    _  -> error $ "Parse Error On:\n" ++ b
 
-run ('-':'-':'a':'s':'t':' ':xs) = do
-    s <- readFile xs
-    putStrLn $ disp (build_ast s)
+dispP Nothing = "Nothing"
 
-run f@(x:xs) = putStrLn "Not Available"
-run _        = putStrLn "Not Available" 
+dispS :: Maybe Ast -> String
+dispS Nothing = "Nothing"
+dispS (Just a) = show a
+
+run (fn:xs) = do
+    s <- readFile fn
+    putStrLn $ dispP (build_ast s)
+    putStrLn $ case build_ast s of
+        Nothing -> "Nothing"
+        Just (a, b) -> dispS $ transProgram a
 
 main :: IO ()
 main = do
     args <- getArgs
-    run $ unwords args
+    run args
 

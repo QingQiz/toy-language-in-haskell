@@ -73,16 +73,10 @@ make
 
 ### Run
 
-currently we can pass --ast and generate an AST
+> currently we can generate AST and perform semantic analysis
 
 ```
-./cpr --ast path-to-file
-```
-
-### Test
-
-```
-make test
+./cpr path-to-file
 ```
 
 ## TODO LIST
@@ -112,7 +106,7 @@ make test
     - [x] var desc
     - [x] func def
   - [x] AST
-- [ ] Semantic Analysis
+- [x] Semantic Analysis
   - [x] const desc
   - [x] var desc
   - [x] func def
@@ -125,14 +119,17 @@ make test
   - [x] return
   - [x] func call
   - [x] assign
-  - [ ] expr
+  - [x] expr
     - [x] bin node
     - [x] unary node
-    - [ ] leaf node
+    - [x] leaf node
 - [ ] code generation
-  - [ ] const expr
 - [ ] extra
   - [ ] error reporter
+    - [x] Some crude error messages in semantic analysis
+    - [ ] ...
   - [ ] optimization
+    - [x] reduce const expr
+    - [ ] ...
   - [ ] ...
 
