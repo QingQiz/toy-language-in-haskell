@@ -15,7 +15,7 @@ transProgram :: Ast -> Maybe Ast
 transProgram (Program cst var fun) =
     transConst cst empty_st >>= transVar var >>= transFunc fun >>= rebuild where
         rebuild :: ([Ast], SymbolTable) -> Maybe Ast
-        rebuild (asts, st) = Just $ Program cst var asts
+        rebuild (asts, st) = Just $ Program [] var asts
 
 
 transConst :: [Ast] -> SymbolTable -> Maybe SymbolTable
@@ -94,7 +94,7 @@ transComdStmt :: Ast -> SymbolTable -> Maybe Ast
 transComdStmt (ComdStmt cs vs sl) st =
     transConst cs st >>= transVar vs >>= transStmtList sl >>= rebuild where
         rebuild :: Ast -> Maybe Ast
-        rebuild ast = Just $ ComdStmt cs vs ast
+        rebuild ast = Just $ ComdStmt [] vs ast
 
 
 transStmtList :: Ast -> SymbolTable -> Maybe Ast
@@ -107,7 +107,7 @@ transStmtList (StmtList stmts) st = toStmtList $ transStmts stmts [] where
     transStmts [] r = Just r
     transStmts (stmt:stmts) zero = case transAStmt stmt of
         Nothing -> Nothing
-        Just a  -> transStmts stmts $ a:zero
+        x -> x <> transStmts stmts zero
 
     transAStmt :: Ast -> Maybe Ast
     transAStmt (IfStmt c s es)   = transIfStmt c s es
