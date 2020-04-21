@@ -1,6 +1,7 @@
 module Main where
 
 import Ast
+import Symbol
 import Grammar
 import Semantic
 
@@ -13,9 +14,9 @@ dispP (Just (a, b)) = case b of
 
 dispP Nothing = "Nothing"
 
-dispS :: Maybe Ast -> String
+dispS :: Maybe (Ast, SymbolTable) -> String
 dispS Nothing = "Nothing"
-dispS (Just a) = show a
+dispS (Just (a,b)) = show a
 
 run (fn:xs) = do
     s <- readFile fn
