@@ -3,14 +3,12 @@ module Symbol where
 import Data.Map
 
 
--- TODO insert reserve name into empty symbol table
-empty_st = fromList ([]::[(String, Symbol)])
-
 ----                   name   type
 type SymbolTable = Map String Symbol
 
 
-data Symbol = STempSymbol
+data Symbol = SReserveSymbol
+            | STempSymbol
             | SVariable SType
             | SArray SType SSize
             | SConst SType Int
@@ -28,4 +26,13 @@ data ExprValue = EStrictN Int
                | ENot
                | EArray
                deriving (Show)
+
+
+empty_st :: Map String Symbol
+empty_st = fromList [
+    ("if",     SReserveSymbol), ("else",   SReserveSymbol),
+    ("for",    SReserveSymbol), ("do",     SReserveSymbol), ("while", SReserveSymbol),
+    ("printf", SReserveSymbol), ("scanf",  SReserveSymbol),
+    ("const",  SReserveSymbol), ("char",   SReserveSymbol), ("int",   SReserveSymbol),
+    ("void",   SReserveSymbol), ("return", SReserveSymbol)]
 

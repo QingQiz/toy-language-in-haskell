@@ -6,14 +6,14 @@ import Grammar
 
 import Data.Char
 import Data.Semigroup hiding ((<>))
-import Data.Map as Map hiding (foldl, map)
+import Data.Map as Map hiding (foldl, foldr, map)
 
 
-semaProgram :: Ast -> Maybe Ast
+semaProgram :: Ast -> Maybe (Ast, SymbolTable)
 semaProgram (Program cst var fun) =
     semaConst cst empty_st >>= semaVar var >>= semaFunc fun >>= rebuild where
-        rebuild :: ([Ast], SymbolTable) -> Maybe Ast
-        rebuild (asts, st) = Just $ Program [] var asts
+        rebuild :: ([Ast], SymbolTable) -> Maybe (Ast, SymbolTable)
+        rebuild (asts, st) = Just $ (Program [] var asts, st)
 
 
 semaConst :: [Ast] -> SymbolTable -> Maybe SymbolTable
@@ -72,7 +72,7 @@ semaFunc (f:fs) st = semaAFun f st >>> semaFunc fs where
                                 nst' = Map.union nst (Map.insert fn fs st)
                                 -- insert ("", SFunction) to symbol table to ckeck ret_stmt
                             in case semaComdStmt fb (Map.insert "" fs nst') of
-                                Just ast -> Just (ast, Map.insert fn fs st)
+                                Just ast -> Just (FuncDef ft (Identifier fn) pl ast, Map.insert fn fs st)
                                 _        -> Nothing
                 Nothing  -> Nothing
             _       -> error $ "redefined function " ++ show fn
@@ -85,8 +85,8 @@ semaFunc (f:fs) st = semaAFun f st >>> semaFunc fs where
     semaParamList [] st = Just st
 
     pSFun :: FunType -> [(Type, Ast)] -> Symbol
-    pSFun t pl = SFunction (semaFType t) (map semaType $ foldl step [] pl)
-        where step zero (a, b) = a : zero
+    pSFun t pl = SFunction (semaFType t) (map semaType $ foldr step [] pl)
+        where step (a, b) zero = a : zero
 
 
 semaComdStmt :: Ast -> SymbolTable -> Maybe Ast
