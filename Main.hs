@@ -1,8 +1,8 @@
 module Main where
 
+import Ast
 import Grammar
 import Semantic
-import ParserAst
 
 import System.Environment
 
@@ -22,7 +22,7 @@ run (fn:xs) = do
     putStrLn $ dispP (build_ast s)
     putStrLn $ case build_ast s of
         Nothing -> "Nothing"
-        Just (a, b) -> dispS $ transProgram a
+        Just (a, b) -> dispS $ semaProgram a
 
 main :: IO ()
 main = do

@@ -1,7 +1,7 @@
 module Grammar (build_ast) where
 
+import Ast
 import Parser
-import ParserAst
 
 import Data.Char
 import Control.Monad

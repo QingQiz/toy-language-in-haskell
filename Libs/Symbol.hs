@@ -1,7 +1,10 @@
-module TransAst where
+module Symbol where
 
 import Data.Map
 
+
+-- TODO insert reserve name into empty symbol table
+empty_st = fromList ([]::[(String, Symbol)])
 
 ----                   name   type
 type SymbolTable = Map String Symbol

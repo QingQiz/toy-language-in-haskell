@@ -1,4 +1,4 @@
-module ParserAst where
+module Ast where
 
 data Ast = Empty
          | Number     Int
