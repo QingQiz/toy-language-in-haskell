@@ -124,6 +124,11 @@ make
     - [x] unary node
     - [x] leaf node
 - [ ] code generation
+  - [x] global variables
+  - [x] function definations
+  - [ ] local variables
+  - [ ] stmt list
+  - [ ] ...
 - [ ] extra
   - [ ] error reporter
     - [x] Some crude error messages in semantic analysis
