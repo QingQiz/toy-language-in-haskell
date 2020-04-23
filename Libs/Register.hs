@@ -13,9 +13,13 @@ registers = [
     [ "%r9", "%r9d", "%r9w", "%r9b"]]
 
 
---                variable register size
+--                variable register datasize
 type RegTable = Map String (String, Int)
+
 
 empty_rgt :: Map String (String, Int)
 empty_rgt = fromList []
+
+get_reg_offset :: String -> Int
+get_reg_offset = read . fst . break (=='(')
 

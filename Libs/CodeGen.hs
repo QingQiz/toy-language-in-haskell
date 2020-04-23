@@ -5,7 +5,8 @@ import Symbol
 import CGTest
 import Register
 
-import Data.Map as Map hiding (foldl, foldr, map)
+import Data.List
+import qualified Data.Map as Map
 
 
 cProgram :: Ast -> [[String]]
@@ -42,7 +43,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
         bind :: ([a], RegTable) -> (RegTable -> [a]) -> [a]
         bind (a, b) c = (++) a $ c $ Map.union b rgt
 
-        cParams pls = (for_pl pls, fromList $ get_param_reg pls)
+        cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
 
         get_param_reg pls =
             let l2 = unzip $ map (\(t, Identifier i) -> ((\t -> case t of TInt -> 4; TChar -> 1) t, i)) pls
@@ -56,6 +57,42 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
             in map (\(a,b,c)->"\t" ++ a ++ "\t" ++ b ++ ", " ++ c) $ zip3 (snd si) reg $ map (\(_,(b,_))->b) pl
 
 
-cComdStmt fb rgt = [""]
+cComdStmt :: Ast -> RegTable -> [String]
+cComdStmt (ComdStmt [] vd sl) rgt = cStmtList sl $ cLocalVar vd rgt
+
+
+cLocalVar :: [Ast] -> RegTable -> RegTable
+cLocalVar vds rgt =
+    let
+        offset :: [Int]
+        offset = map (get_reg_offset . head)
+            $ filter (not . null)
+            $ map (fst . span ("(%rbp)" `isSuffixOf`) . tails)
+            $ map (\(_, (b,_))->b) $ Map.toList rgt
+
+        int_var = map trans $ concat $ map take_name [x | x <- vds, is_int x]
+        chr_var = map trans $ concat $ map take_name [x | x <- vds, not $ is_int x]
+
+        int_rgt = for_siz 4 int_var (if null offset then 0 else minimum offset) []
+        chr_rgt = for_siz 1 chr_var (fst int_rgt) []
+    in
+        Map.union (snd int_rgt) (snd chr_rgt)
+    where
+        is_int (VarDef TInt _) = True
+        is_int (VarDef TChar _) = False
+
+        trans (Array (Identifier i) (Number n)) = (i, n)
+        trans (Identifier i) = (i, 1)
+
+        take_name = \(VarDef _ n) -> n
+
+        for_siz siz ((name, len):xs) oft res = for_siz siz xs (oft - len * siz)
+            $ (name, ((show $ oft - siz) ++ "(%rbp)", siz)) : res
+        for_siz _ [] oft res = (oft, Map.fromList res)
+
+
+
+cStmtList :: Ast -> RegTable -> [String]
+cStmtList sl rgt = [""]
 
 
