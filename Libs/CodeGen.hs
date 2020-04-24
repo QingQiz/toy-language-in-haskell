@@ -38,10 +38,13 @@ cAFuncDef :: Ast -> RegTable -> [String]
 cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
     [fn ++ ":", "\tpushq\t%rbp", "\tmovq\t%rsp, %rbp"]
         ++ bind (cParams pl) (cComdStmt fb)
-        ++ ["\tpopq\t%rbp", "\tret"]
+        ++ ["\tret"]
     where
-        bind :: ([a], RegTable) -> (RegTable -> [a]) -> [a]
-        bind (a, b) c = (++) a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
+        label_end = ".L_" ++ fn ++ "_END:"
+        bind (a, b) c = bind' a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
+        bind' a (b, c) = if c /= 0
+                         then ["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ [label_end, "\tleave"]
+                         else [label_end, "\tpopq\t%rbp"]
 
         cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
 
@@ -57,11 +60,12 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
             in map (\(a,b,c)->"\t" ++ a ++ "\t" ++ b ++ ", " ++ c) $ zip3 (snd si) reg $ map (\(_,(b,_))->b) pl
 
 
-cComdStmt :: Ast -> RegTable -> [String]
-cComdStmt (ComdStmt [] vd sl) rgt = fst $ cStmtList sl $ cLocalVar vd rgt
+cComdStmt :: Ast -> RegTable -> ([String], Int) -- Int: stack size needed
+cComdStmt (ComdStmt [] vd sl) rgt =
+    let (var, siz) = cLocalVar vd rgt in (fst $ cStmtList sl $ var, siz)
 
 
-cLocalVar :: [Ast] -> RegTable -> RegTable
+cLocalVar :: [Ast] -> RegTable -> (RegTable, Int) -- Int: stack size
 cLocalVar vds rgt =
     let
         offset :: [Int]
@@ -76,7 +80,7 @@ cLocalVar vds rgt =
         int_rgt = for_siz 4 int_var (if null offset then 0 else minimum offset) []
         chr_rgt = for_siz 1 chr_var (fst int_rgt) []
     in
-        Map.union (Map.union (snd int_rgt) (snd chr_rgt)) rgt
+        (Map.union (Map.union (snd int_rgt) (snd chr_rgt)) rgt, (abs $ fst chr_rgt - 15) `div` 16 * 16)
     where
         is_int (VarDef TInt _) = True
         is_int (VarDef TChar _) = False
@@ -107,8 +111,8 @@ cAStmt Empty rgt = (["\tnop"], rgt)
 cAStmt (IfStmt c s Empty) rgt =
     let
         l_end = get_label rgt
-        stmt_head = cExpr c rgt
-        stmt_cmpr = ["\tcmpl\t$0, %eax", "\tje\t" ++ l_end]
+        (stmt_head, reg) = cExpr c rgt
+        stmt_cmpr = ["\tcmpl\t$0, " ++ reg, "\tje\t" ++ l_end]
         then_stmt = cAStmt s (update_label rgt)
     in
         (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ [l_end ++ ":"], snd then_stmt)
@@ -118,8 +122,8 @@ cAStmt (IfStmt c s es) rgt =
         l_else = get_label rgt
         l_end = get_label $ snd else_stmt
 
-        stmt_head = cExpr c rgt
-        stmt_cmpr = ["\tcmpl\t$0, %eax", "\tje\t" ++ l_else]
+        (stmt_head, reg) = cExpr c rgt
+        stmt_cmpr = ["\tcmpl\t$0, " ++ reg, "\tje\t" ++ l_else]
 
         then_stmt = cAStmt s  (update_label rgt)
         else_stmt = cAStmt es (snd then_stmt)
@@ -131,10 +135,10 @@ cAStmt (DoStmt lb cnd) rgt =
     let
         l_beg = get_label rgt
         body = cAStmt lb $ update_label rgt
-        cmpr = cExpr cnd rgt
+        (cmpr, reg) = cExpr cnd rgt
     in
         ([l_beg ++ ":"] ++ fst body ++ cmpr
-         ++ ["\tcmpl\t$0, %eax", "\tjne\t" ++ l_beg], snd body)
+         ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_beg], snd body)
 
 cAStmt (ForStmt init cond step lpbd) rgt =
     let
@@ -142,18 +146,53 @@ cAStmt (ForStmt init cond step lpbd) rgt =
         l_cond = get_label $ snd loop_body
         init_stmt = cAStmt init rgt -- assign
         step_stmt = cAStmt step rgt -- assign
-        cond_expr = cExpr  cond rgt -- expr
+        (cond_expr, reg) = cExpr  cond rgt -- expr
         loop_body = cAStmt lpbd $ update_label rgt
     in
         (fst init_stmt ++ ["\tjmp\t" ++ l_cond, l_body ++ ":"]
          ++ fst loop_body ++ fst step_stmt ++ [l_cond ++ ":"] ++ cond_expr
-         ++ ["\tcmpl\t$0, %eax", "\tjne\t" ++ l_body], update_label $ snd loop_body)
+         ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body], update_label $ snd loop_body)
+
+cAStmt (Assign (Identifier i) e) rgt =
+    let (expr, reg) = cExpr e rgt in
+        ((++) expr $ case Map.lookup i rgt of
+            Just (addr, siz) -> case siz of
+                1 -> ["\tmovb\t" ++ get_low_reg reg ++ ", " ++ addr]
+                4 -> ["\tmovl\t" ++ reg ++ ", " ++ addr]
+            _ -> error $ "an error occurred on gen assign-stmt"
+        , rgt)
+
+cAStmt (Ret e) rgt = let (expr, reg) = cExpr e rgt in
+    if reg == "%eax"
+    then ([""], rgt)
+    else (["\tmovl\t" ++ reg ++ ", %eax", "\tjmp\t" ++ get_end_label rgt], rgt)
+
+cAStmt (FuncCall (Identifier fn) pl) rgt =
+    let
+        (params_h, params_t) = splitAt 6 pl
+        reg_l = zip (tail $ map (!!1) registers) params_h
+    in
+        ((foldl step_t [] $ params_t) ++ (foldl step_h [] reg_l) ++ ["\tcall\t" ++ fn]
+         ++ (if null params_t then [] else ["\taddq\t" ++ show (8 * length params_t) ++ ", %rsp"])
+        , rgt)
+    where
+        step_t zero x = case x of
+            (Number n) -> ["\tpushq\t$" ++ show n] ++ zero
+            e -> let (expr, reg) = cExpr e rgt in
+                expr ++ ["\tpushq\t" ++ get_high_reg reg] ++ zero
+        step_h zero (r, ast) = case ast of
+            (Number n) -> ["\tmovl\t$" ++ show n ++ ", " ++ r] ++ zero
+            e -> let (expr, reg) = cExpr e rgt in
+                expr ++ (if reg == r then [] else ["\tmovl\t" ++ reg ++ ", " ++ r]) ++ zero
 
 
 cAStmt _ x = (["\tunknown_stmt"], x)
 
 
-cExpr :: Ast -> RegTable -> [String]
-cExpr _ _ = ["\tunknown_expr"]
+
+
+--                             res     reg where res is
+cExpr :: Ast -> RegTable -> ([String], String)
+cExpr _ _ = (["\tunknown_expr"], "%eax")
 
 

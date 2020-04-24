@@ -132,9 +132,13 @@ make
     - [x] stmt-list
     - [x] empty-stmt
     - [x] if-stmt
-    - [ ] do-stmt
-    - [ ] for-stmt
-    - [ ] ...
+    - [x] do-stmt
+    - [x] for-stmt
+    - [x] assign-stmt
+    - [x] func-call
+    - [ ] read
+    - [ ] write
+    - [x] return
   - [ ] expr
 - [ ] extra
   - [ ] error reporter
