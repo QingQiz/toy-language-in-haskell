@@ -1,6 +1,6 @@
 module Register where
 
-import Data.Map
+import Data.Map as Map
 
 registers :: [[String]]
 registers = [
@@ -22,4 +22,12 @@ empty_rgt = fromList []
 
 get_reg_offset :: String -> Int
 get_reg_offset = read . fst . break (=='(')
+
+get_label rgt = case Map.lookup ".label" rgt of
+    Just (n, i) -> ".L_" ++ n ++ "_" ++ show i
+    _ -> ".LL"
+
+update_label rgt = case Map.lookup ".label" rgt of
+    Just (n, i) -> Map.insert ".label" (n, i + 1) rgt
+    _ -> rgt
 

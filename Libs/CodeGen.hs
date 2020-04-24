@@ -41,7 +41,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
         ++ ["\tpopq\t%rbp", "\tret"]
     where
         bind :: ([a], RegTable) -> (RegTable -> [a]) -> [a]
-        bind (a, b) c = (++) a $ c $ Map.union b rgt
+        bind (a, b) c = (++) a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
 
         cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
 
@@ -58,7 +58,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
 
 
 cComdStmt :: Ast -> RegTable -> [String]
-cComdStmt (ComdStmt [] vd sl) rgt = cStmtList sl $ cLocalVar vd rgt
+cComdStmt (ComdStmt [] vd sl) rgt = fst $ cStmtList sl $ cLocalVar vd rgt
 
 
 cLocalVar :: [Ast] -> RegTable -> RegTable
@@ -76,7 +76,7 @@ cLocalVar vds rgt =
         int_rgt = for_siz 4 int_var (if null offset then 0 else minimum offset) []
         chr_rgt = for_siz 1 chr_var (fst int_rgt) []
     in
-        Map.union (snd int_rgt) (snd chr_rgt)
+        Map.union (Map.union (snd int_rgt) (snd chr_rgt)) rgt
     where
         is_int (VarDef TInt _) = True
         is_int (VarDef TChar _) = False
@@ -91,8 +91,46 @@ cLocalVar vds rgt =
         for_siz _ [] oft res = (oft, Map.fromList res)
 
 
+cStmtList :: Ast -> RegTable -> ([String], RegTable)
+cStmtList (StmtList sl) rgt = cStmts sl rgt where
+    cStmts (sl:sls) rgt = bind (cAStmt sl rgt) (cStmts sls)
+    cStmts [] rgt = ([], rgt)
 
-cStmtList :: Ast -> RegTable -> [String]
-cStmtList sl rgt = [""]
+    bind (a, b) c = bind' a (c b)
+    bind' a (b, c) = (a ++ b, c)
+
+
+cAStmt :: Ast -> RegTable -> ([String], RegTable)
+cAStmt sl@(StmtList _) rgt = cStmtList sl rgt
+cAStmt Empty rgt = (["\tnop"], rgt)
+
+cAStmt (IfStmt c s Empty) rgt =
+    let
+        l_end = get_label rgt
+        stmt_head = cExpr c rgt
+        stmt_cmpr = ["\tcmpl\t$0, %eax", "\tje\t" ++ l_end]
+        then_stmt = cAStmt s (update_label rgt)
+    in
+        (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ [l_end ++ ":"], update_label $ snd then_stmt)
+
+cAStmt (IfStmt c s es) rgt =
+    let
+        l_else = get_label rgt
+        l_end = get_label $ update_label $ snd else_stmt
+
+        stmt_head = cExpr c rgt
+        stmt_cmpr = ["\tcmpl\t$0, %eax", "\tje\t" ++ l_else]
+
+        then_stmt = cAStmt s  (update_label rgt)
+        else_stmt = cAStmt es (update_label $ snd then_stmt)
+    in
+        (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ ["\tjmp\t" ++ l_end]
+         ++ [l_else ++ ":"] ++ fst else_stmt ++ [l_end ++ ":"], update_label $ snd else_stmt)
+
+cAStmt _ x = (["\tunknown_stmt"], x)
+
+
+cExpr :: Ast -> RegTable -> [String]
+cExpr _ _ = ["\tunknown_expr"]
 
 

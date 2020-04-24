@@ -126,9 +126,16 @@ make
 - [ ] code generation
   - [x] global variables
   - [x] function definations
-  - [ ] local variables
-  - [ ] stmt list
-  - [ ] ...
+  - [x] local variables
+  - [x] stmt list
+  - [ ] stmt
+    - [x] stmt-list
+    - [x] empty-stmt
+    - [x] if-stmt
+    - [ ] do-stmt
+    - [ ] for-stmt
+    - [ ] ...
+  - [ ] expr
 - [ ] extra
   - [ ] error reporter
     - [x] Some crude error messages in semantic analysis
