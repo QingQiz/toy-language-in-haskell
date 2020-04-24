@@ -111,21 +111,44 @@ cAStmt (IfStmt c s Empty) rgt =
         stmt_cmpr = ["\tcmpl\t$0, %eax", "\tje\t" ++ l_end]
         then_stmt = cAStmt s (update_label rgt)
     in
-        (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ [l_end ++ ":"], update_label $ snd then_stmt)
+        (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ [l_end ++ ":"], snd then_stmt)
 
 cAStmt (IfStmt c s es) rgt =
     let
         l_else = get_label rgt
-        l_end = get_label $ update_label $ snd else_stmt
+        l_end = get_label $ snd else_stmt
 
         stmt_head = cExpr c rgt
         stmt_cmpr = ["\tcmpl\t$0, %eax", "\tje\t" ++ l_else]
 
         then_stmt = cAStmt s  (update_label rgt)
-        else_stmt = cAStmt es (update_label $ snd then_stmt)
+        else_stmt = cAStmt es (snd then_stmt)
     in
         (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ ["\tjmp\t" ++ l_end]
          ++ [l_else ++ ":"] ++ fst else_stmt ++ [l_end ++ ":"], update_label $ snd else_stmt)
+
+cAStmt (DoStmt lb cnd) rgt =
+    let
+        l_beg = get_label rgt
+        body = cAStmt lb $ update_label rgt
+        cmpr = cExpr cnd rgt
+    in
+        ([l_beg ++ ":"] ++ fst body ++ cmpr
+         ++ ["\tcmpl\t$0, %eax", "\tjne\t" ++ l_beg], snd body)
+
+cAStmt (ForStmt init cond step lpbd) rgt =
+    let
+        l_body = get_label rgt
+        l_cond = get_label $ snd loop_body
+        init_stmt = cAStmt init rgt -- assign
+        step_stmt = cAStmt step rgt -- assign
+        cond_expr = cExpr  cond rgt -- expr
+        loop_body = cAStmt lpbd $ update_label rgt
+    in
+        (fst init_stmt ++ ["\tjmp\t" ++ l_cond, l_body ++ ":"]
+         ++ fst loop_body ++ fst step_stmt ++ [l_cond ++ ":"] ++ cond_expr
+         ++ ["\tcmpl\t$0, %eax", "\tjne\t" ++ l_body], update_label $ snd loop_body)
+
 
 cAStmt _ x = (["\tunknown_stmt"], x)
 
