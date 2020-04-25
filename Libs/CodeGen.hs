@@ -6,6 +6,7 @@ import CGTest
 import Register
 
 import Data.List
+import Data.Char
 import qualified Data.Map as Map
 
 
@@ -90,8 +91,8 @@ cLocalVar vds rgt =
 
         take_name = \(VarDef _ n) -> n
 
-        for_siz siz ((name, len):xs) oft res = for_siz siz xs (oft - len * siz)
-            $ (name, ((show $ oft - siz) ++ "(%rbp)", siz)) : res
+        for_siz siz ((name, len):xs) oft res = for_siz siz xs (oft - siz - len * siz)
+            $ (name, ((show $ oft - len * siz) ++ "(%rbp)", siz)) : res
         for_siz _ [] oft res = (oft, Map.fromList res)
 
 
@@ -159,7 +160,29 @@ cAStmt (Assign (Identifier i) e) rgt =
             Just (addr, siz) -> case siz of
                 1 -> ["\tmovb\t" ++ get_low_reg reg ++ ", " ++ addr]
                 4 -> ["\tmovl\t" ++ reg ++ ", " ++ addr]
-            _ -> error $ "an error occurred on gen assign-stmt"
+            _ -> error $ "an error occurred on assign-stmt"
+        , rgt)
+
+cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
+    let
+        (expri, regi) = cExpr ei rgt
+        (exprv, regv) = cExpr ev rgt
+    in
+        (case Map.lookup i rgt of
+            Just (nam, siz) ->
+                if "(%rip)" `isSuffixOf` nam
+                then
+                    expri ++ ["\tcltq", "\tpushq\t" ++ get_high_reg regi] ++
+                    exprv ++ ["\tpushq\t" ++ get_high_reg regv] ++
+                    ["\tpopq\t%rcx", "\tpopq\t%rax"] ++
+                    ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx", "\tleaq\t" ++ nam ++ ", %rax"] ++
+                    ["\tmovl\t%ecx, (%rdx, rax)"]
+                else
+                    expri ++ ["\tcltq", "\tpushq\t" ++ get_high_reg regi] ++
+                    exprv ++ ["\tpushq\t" ++ get_high_reg regv] ++
+                    ["\tpopq\t%rdx", "\tpopq\t%rax"] ++
+                    ["\tmovl\t%edx, " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
+            _ -> error $ "an error occurred on assign-array"
         , rgt)
 
 cAStmt (Ret e) rgt = let (expr, reg) = cExpr e rgt in
@@ -201,8 +224,41 @@ cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
                 "\tcall\t__isoc99_scanf@PLT",
                 "\taddq\t$8, %rsp"] ++ zero
 
-cAStmt _ x = (["\tunknown_stmt"], x)
+cAStmt (Wt s e) rgt =
+    let
+        format_str = convert_str $ case s of
+            Empty -> case e of
+                (Ch _) -> "%c"
+                _ -> "%d"
+            (Str x) -> x
+        (expr, reg) = case e of
+            Empty -> ([], "")
+            _ -> cExpr e rgt
+        param = case reg of
+            "" -> []
+            "%esi" -> []
+            x -> ["\tmovl\t" ++ x ++ ", %esi"]
+    in
+        (["\tpushq\t$0"] ++
+         foldr (\x z -> ["\tmovabsq\t$" ++ x ++ ", %rax", "\tpushq\t%rax"] ++ z) [] format_str ++
+         ["\tleaq\t(%rsp), %rdi"] ++
+         ["\tmovl\t$0, %eax"] ++
+         ["\tcall\tprintf@PLT"] ++
+         ["\tmovl\t$0, %eax"] ++
+         ["\taddq\t$" ++ show (8 + 8 * length format_str) ++ ", %rsp"]
+        , rgt)
+    where
+        convert_str s = reverse $ map (show . from_bin . foldr (\b a -> show b ++ a) "" . concat . reverse)
+            $ splitEvery 8
+            $ map (\inp -> take (8 - length inp) [0,0..] ++ inp)
+            $ map (to_bin . ord) s
 
+        to_bin = reverse . unfoldr (\x -> if x == 0 then Nothing else Just (x `mod` 2, x `div` 2))
+        from_bin = foldl (\zero x -> zero * 2 + (fromEnum $ x == '1')) 0
+
+        splitEvery _ [] = []
+        splitEvery n xs = a : splitEvery n b where
+            (a, b) = splitAt n xs
 
 
 --                             res     reg where res is

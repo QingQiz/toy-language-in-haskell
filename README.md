@@ -128,7 +128,7 @@ make
   - [x] function definations
   - [x] local variables
   - [x] stmt list
-  - [ ] stmt
+  - [x] stmt
     - [x] stmt-list
     - [x] empty-stmt
     - [x] if-stmt
@@ -137,7 +137,7 @@ make
     - [x] assign-stmt
     - [x] func-call
     - [x] read-stmt
-    - [ ] write
+    - [x] write
     - [x] return
   - [ ] expr
 - [ ] extra
