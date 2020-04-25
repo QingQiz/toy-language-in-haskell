@@ -136,7 +136,7 @@ make
     - [x] for-stmt
     - [x] assign-stmt
     - [x] func-call
-    - [ ] read
+    - [x] read-stmt
     - [ ] write
     - [x] return
   - [ ] expr

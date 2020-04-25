@@ -185,9 +185,23 @@ cAStmt (FuncCall (Identifier fn) pl) rgt =
             e -> let (expr, reg) = cExpr e rgt in
                 expr ++ (if reg == r then [] else ["\tmovl\t" ++ reg ++ ", " ++ r]) ++ zero
 
+cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
+    where
+        step (Identifier x) zero =
+            let (reg, format_str) = case Map.lookup x rgt of
+                    Just (r, 1) -> (r, "$25381") -- "%c\0"
+                    Just (r, 4) -> (r, "$25637") -- "%d\0"
+                    _ -> error $ "an error occurred on rd-stmt"
+            in ["\tpushq\t" ++ format_str,
+                "\tleaq\t" ++ reg ++ ", %rdx",
+                "\tleaq\t(%rsp), %rax",
+                "\tmovq\t%rdx, %rsi",
+                "\tmovq\t%rax, %rdi",
+                "\tmovl\t$0, %eax",
+                "\tcall\t__isoc99_scanf@PLT",
+                "\taddq\t$8, %rsp"] ++ zero
 
 cAStmt _ x = (["\tunknown_stmt"], x)
-
 
 
 
