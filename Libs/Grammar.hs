@@ -241,8 +241,8 @@ func_call = (do
 
 ret :: Parser Ast
 ret = do
-    spcStr "return"
-    e <- (spcChar '(' *> expr <* spcChar ')') <|> nothing
+    spcStr "return "
+    e <- expr <|> nothing
     return $ Ret e
 
 
@@ -266,7 +266,7 @@ wt = do
         spcChar ')'
         return $ Wt Empty e) <|> (do
         s <- str
-        spcChar '('
+        spcChar ')'
         return $ Wt s Empty)
 
 

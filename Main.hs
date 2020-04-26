@@ -4,26 +4,23 @@ import Ast
 import Symbol
 import Grammar
 import Semantic
+import CodeGen
 
 import System.Environment
 
-dispP :: Maybe (Ast, String) -> String
-dispP (Just (a, b)) = case b of
-    "" -> show a
+get_ast :: Maybe (Ast, String) -> Ast
+get_ast (Just (a, b)) = case b of
+    "" -> a
     _  -> error $ "Parse Error On:\n" ++ b
 
-dispP Nothing = "Nothing"
-
-dispS :: Maybe (Ast, SymbolTable) -> String
-dispS Nothing = "Nothing"
-dispS (Just (a,b)) = show a
+get_ast' :: Maybe Ast -> Ast
+get_ast' (Just a) = a
+get_ast' Nothing = error $ "Semantic error"
 
 run (fn:xs) = do
     s <- readFile fn
-    putStrLn $ dispP (build_ast s)
-    putStrLn $ case build_ast s of
-        Nothing -> "Nothing"
-        Just (a, b) -> dispS $ semaProgram a
+    let res = unlines $ cProgram $ get_ast' $ semaProgram $ get_ast $ build_ast s
+    putStrLn $ res
 
 main :: IO ()
 main = do

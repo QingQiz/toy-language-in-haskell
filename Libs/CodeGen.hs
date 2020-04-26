@@ -10,9 +10,11 @@ import Data.Char
 import qualified Data.Map as Map
 
 
-cProgram :: Ast -> [[String]]
-cProgram (Program _ vds fds) = bind (cGlobalVarDef vds) (cFuncDefs fds)
-    where bind (a, b) c = [a, c b]
+cProgram :: Ast -> [String]
+cProgram (Program _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fds)
+    where
+        bind (a, b) c = bind' a (c b)
+        bind' a (b, c) = [a ++ c, b]
 
 
 cGlobalVarDef :: [Ast] -> ([String], RegTable)
@@ -30,9 +32,11 @@ cGlobalVarDef defs = foldr step ([], empty_rgt) defs where
     step' s (Array (Identifier i) (Number n)) (l, rgt) =
         (("\t.comm\t" ++ i ++ "," ++ show (n * s)) : l, Map.insert i (i ++ "(%rip)", s) rgt)
 
-
-cFuncDefs :: [Ast] -> RegTable -> [String]
-cFuncDefs fds rgt = concat $ foldr (\fd zero -> cAFuncDef fd rgt : zero) [] fds
+--                                 code      all_func_name
+cFuncDefs :: [Ast] -> RegTable -> ([String], [String])
+cFuncDefs fds rgt = (concat $ foldr (\fd zero -> cAFuncDef fd rgt : zero) [] fds, foldr collect_fn [] fds)
+    where
+        collect_fn (FuncDef _ (Identifier fn) _ _) z = ("\t.globl\t" ++ fn) : z
 
 
 cAFuncDef :: Ast -> RegTable -> [String]
@@ -45,7 +49,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
         bind (a, b) c = bind' a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
         bind' a (b, c) = if c /= 0
                          then ["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ [label_end, "\tleave"]
-                         else [label_end, "\tpopq\t%rbp"]
+                         else a ++ b ++ [label_end, "\tpopq\t%rbp"]
 
         cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
 
@@ -63,7 +67,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
 
 cComdStmt :: Ast -> RegTable -> ([String], Int) -- Int: stack size needed
 cComdStmt (ComdStmt [] vd sl) rgt =
-    let (var, siz) = cLocalVar vd rgt in (fst $ cStmtList sl $ var, siz)
+    let (var, siz) = cLocalVar vd rgt in (fst $ cStmtList sl var, siz)
 
 
 cLocalVar :: [Ast] -> RegTable -> (RegTable, Int) -- Int: stack size
@@ -200,10 +204,13 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
             _ -> error $ "an error occurred on assign-array"
         , rgt)
 
-cAStmt (Ret e) rgt = let (expr, reg) = cExpr e rgt in
-    if reg == "%eax"
-    then ([""], rgt)
-    else (["\tmovl\t" ++ reg ++ ", %eax", "\tjmp\t" ++ get_end_label rgt], rgt)
+cAStmt (Ret e) rgt =
+    let
+        (expr, reg) = cExpr e rgt
+    in
+        if reg == "%eax"
+        then (expr ++ ["\tjmp\t" ++ get_end_label rgt], rgt)
+        else (expr ++ ["\tmovl\t" ++ reg ++ ", %eax", "\tjmp\t" ++ get_end_label rgt], rgt)
 
 cAStmt (FuncCall (Identifier fn) pl) rgt =
     let
@@ -255,6 +262,8 @@ cAStmt (Wt s e) rgt =
             x -> ["\tmovl\t" ++ x ++ ", %esi"]
     in
         (["\tpushq\t$0"] ++
+         expr ++
+         (if (reg == "" || reg == "%esi") then [] else ["\tmovq\t" ++ get_high_reg reg ++ ", %rsi"]) ++
          foldr (\x z -> ["\tmovabsq\t$" ++ x ++ ", %rax", "\tpushq\t%rax"] ++ z) [] format_str ++
          ["\tleaq\t(%rsp), %rdi"] ++
          ["\tmovl\t$0, %eax"] ++
@@ -280,8 +289,8 @@ cAStmt (Wt s e) rgt =
 cExpr :: Ast -> RegTable -> ([String], String)
 cExpr (BinNode op l r) rgt =
     let
-        (exprl, regl) = cExpr l rgt
-        (exprr, regr) = cExpr r rgt
+        (exprl, regl) = cExpr r rgt
+        (exprr, regr) = cExpr l rgt
         regl' = get_free_reg [regr, regl]
         regr' = get_free_reg [regr, regl, regl', "%eax"]
         hregl  = get_high_reg regl
@@ -294,13 +303,13 @@ cExpr (BinNode op l r) rgt =
             (_ , _ ) -> (exprl ++ ["\tpushq\t" ++ hregl] ++ exprr ++ ["\tpopq\t" ++ hregl'] ++ bind op regl' regr, regr)
     where
          bind Gt  l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsetl\t"  ++ low] ++ conn_inst "movzbl" low r
-         bind Ls  l r = let low = get_low_reg r in
             conn_inst "cmpl" l r ++ ["\tsetg\t"  ++ low] ++ conn_inst "movzbl" low r
+         bind Ls  l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsetl\t"  ++ low] ++ conn_inst "movzbl" low r
          bind GE  l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsetle\t" ++ low] ++ conn_inst "movzbl" low r
-         bind LE  l r = let low = get_low_reg r in
             conn_inst "cmpl" l r ++ ["\tsetge\t" ++ low] ++ conn_inst "movzbl" low r
+         bind LE  l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsetle\t" ++ low] ++ conn_inst "movzbl" low r
          bind Equ l r = let low = get_low_reg r in
             conn_inst "cmpl" l r ++ ["\tsete\t"  ++ low] ++ conn_inst "movzbl" low r
          bind Neq l r = let low = get_low_reg r in
@@ -331,7 +340,8 @@ cExpr (UnaryNode Not e) rgt =
     in
         (["\tcmpl\t$0, " ++ reg, "\tsete\t" ++ low, "\tmovabsq\t" ++ low ++ ", " ++ reg'], reg')
 
-cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %esi"], "%esi")
+-- cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %esi"], "%esi")
+cExpr (Number n) rgt = ([], "$" ++ show n)
 
 cExpr (Array (Identifier i) e) rgt =
     let

@@ -9,11 +9,11 @@ import Data.Semigroup hiding ((<>))
 import Data.Map as Map hiding (foldl, foldr, map)
 
 
-semaProgram :: Ast -> Maybe (Ast, SymbolTable)
+semaProgram :: Ast -> Maybe Ast
 semaProgram (Program cst var fun) =
     semaConst cst empty_st >>= semaVar var >>= semaFunc fun >>= rebuild where
-        rebuild :: ([Ast], SymbolTable) -> Maybe (Ast, SymbolTable)
-        rebuild (asts, st) = Just $ (Program [] var asts, st)
+        rebuild :: ([Ast], SymbolTable) -> Maybe Ast
+        rebuild (asts, _) = Just $ Program [] var asts
 
 
 semaConst :: [Ast] -> SymbolTable -> Maybe SymbolTable
