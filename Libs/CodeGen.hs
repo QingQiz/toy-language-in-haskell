@@ -2,7 +2,6 @@ module CodeGen where
 
 import Ast
 import Symbol
-import CGTest
 import Register
 
 import Data.List
