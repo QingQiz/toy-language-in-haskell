@@ -73,7 +73,7 @@ make
 
 ### Run
 
-> currently we can generate AST and perform semantic analysis
+> currently we can generate x86-64 asm
 
 ```
 ./cpr path-to-file
