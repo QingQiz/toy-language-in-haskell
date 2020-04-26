@@ -123,7 +123,7 @@ make
     - [x] bin node
     - [x] unary node
     - [x] leaf node
-- [ ] code generation
+- [x] code generation
   - [x] global variables
   - [x] function definations
   - [x] local variables
@@ -139,7 +139,14 @@ make
     - [x] read-stmt
     - [x] write
     - [x] return
-  - [ ] expr
+  - [x] expr
+    - [x] bin-node
+    - [x] unary-node
+    - [x] number
+    - [x] array
+    - [x] func-call
+    - [x] id
+    - [x] char (char is reduced in semantic analysis)
 - [ ] extra
   - [ ] error reporter
     - [x] Some crude error messages in semantic analysis

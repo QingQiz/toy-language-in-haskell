@@ -18,15 +18,18 @@ get_reg_index x = (!!) registers $ (\(Just a) -> a) $ elemIndex True $ map (x `e
 get_low_reg x = last $ get_reg_index x
 get_high_reg x = head $ get_reg_index x
 
+get_free_reg xs = registers !! ((\(Just x)->x) $ elemIndex True
+    $ map (all (==False) . map (`isInfixOf` (concat xs))) registers) !! 1
+
+get_reg_offset :: String -> Int
+get_reg_offset = read . fst . break (=='(')
+
 --                variable register datasize
 type RegTable = Map String (String, Int)
 
 
 empty_rgt :: Map String (String, Int)
 empty_rgt = fromList []
-
-get_reg_offset :: String -> Int
-get_reg_offset = read . fst . break (=='(')
 
 get_label rgt = case Map.lookup ".label" rgt of
     Just (n, i) -> ".L_" ++ n ++ "_" ++ show i
@@ -35,7 +38,6 @@ get_label rgt = case Map.lookup ".label" rgt of
 get_end_label rgt = case Map.lookup ".label" rgt of
     Just (n, i) -> ".L_" ++ n ++ "_END"
     _ -> ".LL"
-
 
 update_label rgt = case Map.lookup ".label" rgt of
     Just (n, i) -> Map.insert ".label" (n, i + 1) rgt

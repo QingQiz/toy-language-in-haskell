@@ -147,12 +147,20 @@ cAStmt (ForStmt init cond step lpbd) rgt =
         l_cond = get_label $ snd loop_body
         init_stmt = cAStmt init rgt -- assign
         step_stmt = cAStmt step rgt -- assign
-        (cond_expr, reg) = cExpr  cond rgt -- expr
+        (cond_expr, reg) = cExpr cond rgt -- expr,, can be empty
         loop_body = cAStmt lpbd $ update_label rgt
     in
-        (fst init_stmt ++ ["\tjmp\t" ++ l_cond, l_body ++ ":"]
-         ++ fst loop_body ++ fst step_stmt ++ [l_cond ++ ":"] ++ cond_expr
-         ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body], update_label $ snd loop_body)
+        case cond of
+            Empty ->
+                (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
+                 [l_body ++ ":"] ++ fst loop_body ++ fst step_stmt ++
+                 [l_cond ++ ":"]
+                , update_label $ snd loop_body)
+            _ ->
+                (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
+                 [l_body ++ ":"] ++ fst loop_body ++ fst step_stmt ++
+                 [l_cond ++ ":"] ++ cond_expr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body]
+                , update_label $ snd loop_body)
 
 cAStmt (Assign (Identifier i) e) rgt =
     let (expr, reg) = cExpr e rgt in
@@ -167,19 +175,26 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
     let
         (expri, regi) = cExpr ei rgt
         (exprv, regv) = cExpr ev rgt
+        ins_cltq = if regi == "%eax"
+                   then []
+                   else ["\tmovl\t" ++ regi ++ ", %eax", "\tcltq"]
+        push_regv = if last regv == ')'
+                    then ["\tpushq\t" ++ regv]
+                    else ["\tpushq\t" ++ get_high_reg regv]
+
     in
         (case Map.lookup i rgt of
             Just (nam, siz) ->
                 if "(%rip)" `isSuffixOf` nam
                 then
-                    expri ++ ["\tcltq", "\tpushq\t" ++ get_high_reg regi] ++
-                    exprv ++ ["\tpushq\t" ++ get_high_reg regv] ++
+                    expri ++ ins_cltq ++ ["\tpushq\t%rax"] ++
+                    exprv ++ push_regv ++
                     ["\tpopq\t%rcx", "\tpopq\t%rax"] ++
                     ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx", "\tleaq\t" ++ nam ++ ", %rax"] ++
-                    ["\tmovl\t%ecx, (%rdx, rax)"]
+                    ["\tmovl\t%ecx, (%rdx,%rax)"]
                 else
-                    expri ++ ["\tcltq", "\tpushq\t" ++ get_high_reg regi] ++
-                    exprv ++ ["\tpushq\t" ++ get_high_reg regv] ++
+                    expri ++ ins_cltq ++ ["\tpushq\t%rax"] ++
+                    exprv ++ push_regv ++
                     ["\tpopq\t%rdx", "\tpopq\t%rax"] ++
                     ["\tmovl\t%edx, " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
             _ -> error $ "an error occurred on assign-array"
@@ -263,6 +278,85 @@ cAStmt (Wt s e) rgt =
 
 --                             res     reg where res is
 cExpr :: Ast -> RegTable -> ([String], String)
-cExpr _ _ = (["\tunknown_expr"], "%eax")
+cExpr (BinNode op l r) rgt =
+    let
+        (exprl, regl) = cExpr l rgt
+        (exprr, regr) = cExpr r rgt
+        regl' = get_free_reg [regr, regl]
+        regr' = get_free_reg [regr, regl, regl', "%eax"]
+        hregl  = get_high_reg regl
+        hregl' = get_high_reg regl'
+    in
+        case (exprl, exprr) of
+            ([], []) -> (conn_inst "movl" regr regr' ++ bind op regl regr', regr')
+            ([], _ ) -> (exprr ++ bind op regl regr, regr)
+            (_ , []) -> (exprl ++ conn_inst "movl" regr regr' ++ bind op regl regr', regr')
+            (_ , _ ) -> (exprl ++ ["\tpushq\t" ++ hregl] ++ exprr ++ ["\tpopq\t" ++ hregl'] ++ bind op regl' regr, regr)
+    where
+         bind Gt  l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsetl\t"  ++ low] ++ conn_inst "movzbl" low r
+         bind Ls  l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsetg\t"  ++ low] ++ conn_inst "movzbl" low r
+         bind GE  l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsetle\t" ++ low] ++ conn_inst "movzbl" low r
+         bind LE  l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsetge\t" ++ low] ++ conn_inst "movzbl" low r
+         bind Equ l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsete\t"  ++ low] ++ conn_inst "movzbl" low r
+         bind Neq l r = let low = get_low_reg r in
+            conn_inst "cmpl" l r ++ ["\tsetne\t" ++ low] ++ conn_inst "movzbl" low r
+         bind And l r = let low = get_low_reg r in
+            conn_inst "andl" l r ++ conn_inst "cmpl" "$0" r ++ ["\tsetne\t" ++ low] ++ conn_inst "movzbl" low r
+         bind Or  l r = let low = get_low_reg r in
+            conn_inst "orl"  l r ++ conn_inst "cmpl" "$0" r ++ ["\tsetne\t" ++ low] ++ conn_inst "movzbl" low r
+         bind Add l r = conn_inst "addl"  l r
+         bind Sub l r = conn_inst "subl"  l r
+         bind Mul l r = conn_inst "imull" l r
+         bind Div l r = let r' = get_free_reg [l, r, "%eax"] in
+            if l == "%eax" then
+                ["\tcltq", "\tidivl\t" ++ r] ++ conn_inst "movl" l r
+            else
+                if r == "%eax" then
+                    conn_inst "movl" r r' ++ conn_inst "movl" l "%eax" ++ ["\tcltq", "\tidivl\t" ++ r']
+                else
+                    conn_inst "movl" l "%eax" ++ ["\tcltq", "\tidivl\t" ++ r] ++ conn_inst "movl" "%eax" r
 
+         conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
+
+cExpr (UnaryNode Not e) rgt =
+    let
+        (expr, reg) = cExpr e rgt
+        reg' = get_free_reg [reg]
+        low = get_low_reg reg'
+    in
+        (["\tcmpl\t$0, " ++ reg, "\tsete\t" ++ low, "\tmovabsq\t" ++ low ++ ", " ++ reg'], reg')
+
+cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %esi"], "%esi")
+
+cExpr (Array (Identifier i) e) rgt =
+    let
+        (expr, reg) = cExpr e rgt
+        mov_inst = (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"]) ++ ["\tcltq"]
+        regf = get_free_reg ["%eax", "%edx", reg]
+        move_to_free r = ["\tmovl\t" ++ r ++ ", " ++ regf]
+    in
+        case Map.lookup i rgt of
+            Just (r, s) ->
+                if "(%rip)" `isSuffixOf` r
+                then
+                    (expr ++ mov_inst ++
+                     ["\tleaq\t0(,%rax" ++ show s ++ "), %rdx", "\tleaq\t" ++ r ++ ", %rax"] ++
+                     move_to_free "(%rdx,%rax)"
+                    , regf)
+                else
+                    (expr ++ mov_inst ++ move_to_free (init r ++ ",%rax," ++ show s ++ ")"), regf)
+            _ -> error $ "an error occurred on array-expr"
+
+cExpr (Identifier i) rgt = ([], (\(Just (a, _)) -> a) $ Map.lookup i rgt)
+
+cExpr fc@(FuncCall _ _) rgt = (fst $ cAStmt fc rgt, "%eax")
+
+-- Note: for-stmt, ret-stmt and write-stmt have empty-expr
+--       return %eax just for ret-stmt
+cExpr Empty _ = ([], "%eax")
 
