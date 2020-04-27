@@ -45,11 +45,12 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
         ++ bind (cParams pl) (cComdStmt fb)
         ++ ["\tret"]
     where
-        label_end = ".L_" ++ fn ++ "_END:"
+        -- clear %eax if function does not have a return-stmt
+        label_end = ["\tmovl\t$0, %eax", ".L_" ++ fn ++ "_END:"]
         bind (a, b) c = bind' a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
         bind' a (b, c) = if c /= 0
-                         then ["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ [label_end, "\tleave"]
-                         else a ++ b ++ [label_end, "\tpopq\t%rbp"]
+                         then ["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ label_end ++ ["\tleave"]
+                         else a ++ b ++ label_end ++ ["\tpopq\t%rbp"]
 
         cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
 
@@ -209,7 +210,8 @@ cAStmt (Ret e) rgt =
         (expr, reg) = cExpr e rgt
     in
         if reg == "%eax"
-        then (expr ++ ["\tjmp\t" ++ get_end_label rgt], rgt)
+        -- return void also clear %eax
+        then (expr ++ ["\tmovl\t%0, %eax", "\tjmp\t" ++ get_end_label rgt], rgt)
         else (expr ++ ["\tmovl\t" ++ reg ++ ", %eax", "\tjmp\t" ++ get_end_label rgt], rgt)
 
 cAStmt (FuncCall (Identifier fn) pl) rgt =
