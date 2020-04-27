@@ -1,0 +1,17 @@
+int a;
+char b;
+
+int main() {
+    int a_;
+    char b_;
+
+    a = 1;
+    a_ = a + 1;
+
+    printf("a = %d, a_ = %d\n", a, a_);
+
+    b = a + 'a';
+    b_ = a_ + 'A';
+
+    printf("b = '%c', b_ = '%c'\n", b, b_);
+}
