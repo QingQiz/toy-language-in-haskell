@@ -13,10 +13,12 @@ registers = [
     [ "%r8", "%r8d", "%r8w", "%r8b"],
     [ "%r9", "%r9d", "%r9w", "%r9b"]]
 
-get_reg_index x = (!!) registers $ (\(Just a) -> a) $ elemIndex True $ map (x `elem`) registers
+get_reg_index x = (!!) registers $ fromMaybe $ elemIndex True $ map (x `elem`) registers
+    where fromMaybe (Just a) = a
+          fromMaybe Nothing = error $ show x
 
 get_low_reg x = last $ get_reg_index x
-get_high_reg x = head $ get_reg_index x
+get_high_reg x = if last x == ')' then x else head $ get_reg_index x
 
 get_free_reg xs = registers !! ((\(Just x)->x) $ elemIndex True
     $ map (all (==False) . map (`isInfixOf` (concat xs))) registers) !! 1

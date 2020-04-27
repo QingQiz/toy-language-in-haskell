@@ -236,7 +236,8 @@ cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
                     Just (r, 1) -> (r, "$25381") -- "%c\0"
                     Just (r, 4) -> (r, "$25637") -- "%d\0"
                     _ -> error $ "an error occurred on rd-stmt"
-            in ["\tpushq\t" ++ format_str,
+            in ["\tpushq\t$0",
+                "\tpushq\t" ++ format_str,
                 "\tleaq\t" ++ reg ++ ", %rdx",
                 "\tleaq\t(%rsp), %rax",
                 "\tmovq\t%rdx, %rsi",
@@ -288,7 +289,9 @@ cAStmt (Wt s e) rgt =
 cExpr :: Ast -> RegTable -> ([String], String)
 cExpr (BinNode op l r) rgt =
     let
-        (exprl, regl) = cExpr r rgt
+        (exprl, regl) = case r of
+            Number a -> ([], "$" ++ show a)
+            _ -> cExpr r rgt
         (exprr, regr) = cExpr l rgt
         regl' = get_free_reg [regr, regl]
         regr' = get_free_reg [regr, regl, regl', "%eax"]
@@ -299,7 +302,8 @@ cExpr (BinNode op l r) rgt =
             ([], []) -> (conn_inst "movl" regr regr' ++ bind op regl regr', regr')
             ([], _ ) -> (exprr ++ bind op regl regr, regr)
             (_ , []) -> (exprl ++ conn_inst "movl" regr regr' ++ bind op regl regr', regr')
-            (_ , _ ) -> (exprl ++ ["\tpushq\t" ++ hregl] ++ exprr ++ ["\tpopq\t" ++ hregl'] ++ bind op regl' regr, regr)
+            (_ , _ ) -> (exprl ++ ["\tpushq\t" ++ hregl] ++
+                         exprr ++ ["\tpopq\t" ++ hregl'] ++ bind op regl' regr, regr)
     where
          bind Gt  l r = let low = get_low_reg r in
             conn_inst "cmpl" l r ++ ["\tsetg\t"  ++ low] ++ conn_inst "movzbl" low r
@@ -339,8 +343,8 @@ cExpr (UnaryNode Not e) rgt =
     in
         (["\tcmpl\t$0, " ++ reg, "\tsete\t" ++ low, "\tmovabsq\t" ++ low ++ ", " ++ reg'], reg')
 
--- cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %esi"], "%esi")
-cExpr (Number n) rgt = ([], "$" ++ show n)
+cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %esi"], "%esi")
+-- cExpr (Number n) rgt = ([], "$" ++ show n)
 
 cExpr (Array (Identifier i) e) rgt =
     let
@@ -354,7 +358,7 @@ cExpr (Array (Identifier i) e) rgt =
                 if "(%rip)" `isSuffixOf` r
                 then
                     (expr ++ mov_inst ++
-                     ["\tleaq\t0(,%rax" ++ show s ++ "), %rdx", "\tleaq\t" ++ r ++ ", %rax"] ++
+                     ["\tleaq\t0(,%rax," ++ show s ++ "), %rdx", "\tleaq\t" ++ r ++ ", %rax"] ++
                      move_to_free "(%rdx,%rax)"
                     , regf)
                 else

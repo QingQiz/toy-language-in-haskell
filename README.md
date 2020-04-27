@@ -76,7 +76,9 @@ make
 > currently we can generate x86-64 asm
 
 ```
-./cpr path-to-file
+./cpr x.c0 > x.s
+as --64 x.s -o x.o
+ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o /usr/lib/x86_64-linux-gnu/crti.o -lc x.o /usr/lib/x86_64-linux-gnu/crtn.o -o x.out
 ```
 
 ## TODO LIST

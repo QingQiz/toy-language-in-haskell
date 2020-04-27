@@ -241,11 +241,12 @@ func_call = (do
 
 ret :: Parser Ast
 ret = do
-    spcStr "return "
-    e <- expr <|> nothing
+    spcStr "return"
+    e <- (some space >> expr) <|> nothing
     return $ Ret e
 
 
+-- not support for array
 rd :: Parser Ast
 rd = do
     spcStr "scanf"
