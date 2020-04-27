@@ -168,41 +168,53 @@ cAStmt (ForStmt init cond step lpbd) rgt =
                 , update_label $ snd loop_body)
 
 cAStmt (Assign (Identifier i) e) rgt =
-    let (expr, reg) = cExpr e rgt in
-        ((++) expr $ case Map.lookup i rgt of
-            Just (addr, siz) -> case siz of
-                1 -> ["\tmovb\t" ++ get_low_reg reg ++ ", " ++ addr]
-                4 -> ["\tmovl\t" ++ reg ++ ", " ++ addr]
-            _ -> error $ "an error occurred on assign-stmt"
-        , rgt)
+    let
+        (expr, reg) = cExpr e rgt
+        (regl, _) = (\(Just x)->x) $ Map.lookup i rgt
+    in
+        case e of
+            Number n -> (["\tmovl\t$" ++ show n ++ ", " ++ regl], rgt)
+            _ -> (expr ++ ["\tmovl\t" ++ reg ++ ", " ++ regl], rgt)
 
 cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
     let
         (expri, regi) = cExpr ei rgt
         (exprv, regv) = cExpr ev rgt
-        ins_cltq = if regi == "%eax"
-                   then []
-                   else ["\tmovl\t" ++ regi ++ ", %eax", "\tcltq"]
+
+        ins_cltq = case ei of
+            Number n -> ["\tmovl\t$" ++ show n ++ ", %eax", "\tcltq"]
+            _ -> if regi == "%eax"
+                 then ["\tcltq"]
+                 else expri ++ ["\tmovl\t" ++ regi ++ ", %eax", "\tcltq"]
+
         push_regv = if last regv == ')'
                     then ["\tpushq\t" ++ regv]
                     else ["\tpushq\t" ++ get_high_reg regv]
-
+        (nam,siz) = (\(Just x) -> x) $ Map.lookup i rgt
     in
-        (case Map.lookup i rgt of
-            Just (nam, siz) ->
-                if "(%rip)" `isSuffixOf` nam
-                then
-                    expri ++ ins_cltq ++ ["\tpushq\t%rax"] ++
-                    exprv ++ push_regv ++
-                    ["\tpopq\t%rcx", "\tpopq\t%rax"] ++
-                    ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx", "\tleaq\t" ++ nam ++ ", %rax"] ++
-                    ["\tmovl\t%ecx, (%rdx,%rax)"]
-                else
-                    expri ++ ins_cltq ++ ["\tpushq\t%rax"] ++
-                    exprv ++ push_regv ++
-                    ["\tpopq\t%rdx", "\tpopq\t%rax"] ++
-                    ["\tmovl\t%edx, " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
-            _ -> error $ "an error occurred on assign-array"
+        (if "(%rip)" `isSuffixOf` nam
+        then case ev of
+            Number n ->
+                ins_cltq ++                                      -- calculate index and save it in %eax
+                ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx"] ++ -- %rdx is the offset of array now
+                ["\tleaq\t" ++ nam ++ ", %rax"] ++
+                ["\tmovl\t$" ++ show n ++ ", (%rdx,%rax)"]
+            _ ->
+                exprv ++ push_regv ++                            -- calculate value and push it into stack
+                ins_cltq ++                                      -- calculate index and save it in %eax
+                ["\tpopq\t%rcx"] ++                              -- %ecx is now value
+                ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx"] ++ -- %rdx is the offset of array now
+                ["\tleaq\t" ++ nam ++ ", %rax"] ++
+                ["\tmovl\t%ecx, (%rdx,%rax)"]
+        else case ev of
+            Number n ->
+                ins_cltq ++           -- calculate index and save it in %eax
+                ["\tmovl\t$" ++ show n ++ ", " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
+            _ ->
+                exprv ++ push_regv ++ -- calculate value and push it into stack
+                ins_cltq ++           -- calculate index and save it in %eax
+                ["\tpopq\t%rdx"] ++   -- %edx is the value
+                ["\tmovl\t%edx, " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
         , rgt)
 
 cAStmt (Ret e) rgt =
@@ -219,18 +231,20 @@ cAStmt (FuncCall (Identifier fn) pl) rgt =
         (params_h, params_t) = splitAt 6 pl
         reg_l = zip (tail $ map (!!1) registers) params_h
     in
-        ((foldl step_t [] $ params_t) ++ (foldl step_h [] reg_l) ++ ["\tmovl\t$0, %eax", "\tcall\t" ++ fn]
-         ++ (if null params_t then [] else ["\taddq\t" ++ show (8 * length params_t) ++ ", %rsp"])
+        ((foldl step_t [] pl) ++ -- calculate all params and push then into stack
+         (foldr step_h [] reg_l) ++ -- pop first 6 params
+         ["\tmovl\t$0, %eax", "\tcall\t" ++ fn] ++
+         (if null params_t then [] else ["\taddq\t$" ++ show (8 * length params_t) ++ ", %rsp"]) -- release mem
         , rgt)
     where
-        step_t zero x = case x of
-            (Number n) -> ["\tpushq\t$" ++ show n] ++ zero
+        step_t z x = case x of
+            Empty -> z
+            Number n -> ["\tpushq\t$" ++ show n] ++ z
             e -> let (expr, reg) = cExpr e rgt in
-                expr ++ ["\tpushq\t" ++ get_high_reg reg] ++ zero
-        step_h zero (r, ast) = case ast of
-            (Number n) -> ["\tmovl\t$" ++ show n ++ ", " ++ r] ++ zero
-            e -> let (expr, reg) = cExpr e rgt in
-                expr ++ (if reg == r then [] else ["\tmovl\t" ++ reg ++ ", " ++ r]) ++ zero
+                expr ++ ["\tpushq\t" ++ get_high_reg reg] ++ z
+        step_h (r, e) z = case e of
+            Empty -> z
+            _ -> ["\tpopq\t" ++ get_high_reg r] ++ z
 
 cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
     where
@@ -256,8 +270,8 @@ cAStmt (Wt (Str s) es) rgt =
         (func_call, _) = cAStmt (FuncCall (Identifier "printf@PLT") (Empty : es)) rgt
         (a, b) =
             if "%rsp" `isInfixOf` (last func_call)
-            then (fst $ splitAt (length func_call - 4) func_call, [(last . init) func_call, last func_call])
-            else (fst $ splitAt (length func_call - 3) func_call, [last func_call])
+            then (fst $ splitAt (length func_call - 3) func_call, [(last . init) func_call, last func_call])
+            else (fst $ splitAt (length func_call - 2) func_call, [last func_call])
         siz = if length es - 5 > 0 then show ((length es - 5) * 8) else ""
 
         spcChr = [("\\b", "\b"), ("\\t", "\t"), ("\\n", "\n"), ("\\r", "\r")]
@@ -340,26 +354,29 @@ cExpr (UnaryNode Not e) rgt =
         (["\tcmpl\t$0, " ++ reg, "\tsete\t" ++ low, "\tmovabsq\t" ++ low ++ ", " ++ reg'], reg')
 
 cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %esi"], "%esi")
--- cExpr (Number n) rgt = ([], "$" ++ show n)
 
 cExpr (Array (Identifier i) e) rgt =
     let
         (expr, reg) = cExpr e rgt
-        mov_inst = (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"]) ++ ["\tcltq"]
+
+        mov_inst = case e of
+            Number n -> ["\tmovl\t$" ++ show n ++ ", %eax", "\tcltq"]
+            _ -> expr ++ (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"]) ++ ["\tcltq"]
+
         regf = get_free_reg ["%eax", "%edx", reg]
         move_to_free r = ["\tmovl\t" ++ r ++ ", " ++ regf]
+
+        (r, s) = (\(Just x) -> x) $ Map.lookup i rgt
     in
-        case Map.lookup i rgt of
-            Just (r, s) ->
-                if "(%rip)" `isSuffixOf` r
-                then
-                    (expr ++ mov_inst ++
-                     ["\tleaq\t0(,%rax," ++ show s ++ "), %rdx", "\tleaq\t" ++ r ++ ", %rax"] ++
-                     move_to_free "(%rdx,%rax)"
-                    , regf)
-                else
-                    (expr ++ mov_inst ++ move_to_free (init r ++ ",%rax," ++ show s ++ ")"), regf)
-            _ -> error $ "an error occurred on array-expr"
+        if "(%rip)" `isSuffixOf` r
+        then
+            (mov_inst ++ -- calculate index and save it in %eax
+             ["\tleaq\t0(,%rax," ++ show s ++ "), %rdx"] ++ -- offset
+             ["\tleaq\t" ++ r ++ ", %rax"] ++ -- addr
+             move_to_free "(%rdx,%rax)"
+            , regf)
+        else
+            (mov_inst ++ move_to_free (init r ++ ",%rax," ++ show s ++ ")"), regf)
 
 cExpr (Identifier i) rgt = ([], (\(Just (a, _)) -> a) $ Map.lookup i rgt)
 
@@ -368,4 +385,7 @@ cExpr fc@(FuncCall _ _) rgt = (fst $ cAStmt fc rgt, "%eax")
 -- Note: for-stmt, ret-stmt and write-stmt have empty-expr
 --       return %eax just for ret-stmt
 cExpr Empty _ = ([], "%eax")
+
+cExpr (Ch c) rgt = cExpr (Number (ord c)) rgt
+
 
