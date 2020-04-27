@@ -4,8 +4,9 @@ import Ast
 import Symbol
 import Register
 
-import Data.List
 import Data.Char
+import Data.List
+import Data.List.Utils
 import qualified Data.Map as Map
 
 
@@ -216,7 +217,7 @@ cAStmt (FuncCall (Identifier fn) pl) rgt =
         (params_h, params_t) = splitAt 6 pl
         reg_l = zip (tail $ map (!!1) registers) params_h
     in
-        ((foldl step_t [] $ params_t) ++ (foldl step_h [] reg_l) ++ ["\tcall\t" ++ fn]
+        ((foldl step_t [] $ params_t) ++ (foldl step_h [] reg_l) ++ ["\tmovl\t$0, %eax", "\tcall\t" ++ fn]
          ++ (if null params_t then [] else ["\taddq\t" ++ show (8 * length params_t) ++ ", %rsp"])
         , rgt)
     where
@@ -244,31 +245,24 @@ cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
                 "\tmovq\t%rax, %rdi",
                 "\tmovl\t$0, %eax",
                 "\tcall\t__isoc99_scanf@PLT",
-                "\taddq\t$8, %rsp"] ++ zero
+                "\taddq\t$16, %rsp"] ++ zero
 
-cAStmt (Wt s e) rgt =
+cAStmt (Wt (Str s) es) rgt =
     let
-        format_str = convert_str $ case s of
-            Empty -> case e of
-                (Ch _) -> "%c"
-                _ -> "%d"
-            (Str x) -> x
-        (expr, reg) = case e of
-            Empty -> ([], "")
-            _ -> cExpr e rgt
-        param = case reg of
-            "" -> []
-            "%esi" -> []
-            x -> ["\tmovl\t" ++ x ++ ", %esi"]
+        format_str = convert_str $ foldr (\x z -> replace (fst x) (snd x) z) s spcChr
+
+        (func_call, _) = cAStmt (FuncCall (Identifier "printf@PLT") (Empty : es)) rgt
+        (a, b) =
+            if "%rsp" `isInfixOf` (last func_call)
+            then (fst $ splitAt (length func_call - 4) func_call, [(last . init) func_call, last func_call])
+            else (fst $ splitAt (length func_call - 3) func_call, [last func_call])
+        siz = if length es - 5 > 0 then show ((length es - 5) * 8) else ""
+
+        spcChr = [("\\b", "\b"), ("\\t", "\t"), ("\\n", "\n"), ("\\r", "\r")]
     in
         (["\tpushq\t$0"] ++
-         expr ++
-         (if (reg == "" || reg == "%esi") then [] else ["\tmovq\t" ++ get_high_reg reg ++ ", %rsi"]) ++
          foldr (\x z -> ["\tmovabsq\t$" ++ x ++ ", %rax", "\tpushq\t%rax"] ++ z) [] format_str ++
-         ["\tleaq\t(%rsp), %rdi"] ++
-         ["\tmovl\t$0, %eax"] ++
-         ["\tcall\tprintf@PLT"] ++
-         ["\tmovl\t$0, %eax"] ++
+         a ++ ["\tleaq\t" ++ siz ++ "(%rsp), %rdi", "\tmovl\t$0, %eax"] ++ b ++
          ["\taddq\t$" ++ show (8 + 8 * length format_str) ++ ", %rsp"]
         , rgt)
     where

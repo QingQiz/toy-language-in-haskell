@@ -161,14 +161,17 @@ semaStmtList (StmtList stmts) st = toStmtList $ semaStmts stmts [] where
         toReadStmt Nothing = Nothing
         toReadStmt (Just a) = Just $ Rd a
 
-    --                str    expr
-    semaWriteStmt :: Ast -> Ast -> Maybe Ast
-    semaWriteStmt s e = toWriteStmt $ case semaExpr e of
-        Nothing -> Nothing
-        Just (t, a) -> semaFormatStr s t <> Just a <> Just []
-        where
-            toWriteStmt Nothing = Nothing
-            toWriteStmt (Just [a, b]) = Just $ Wt a b
+    --                str   expr
+    semaWriteStmt :: Ast -> [Ast] -> Maybe Ast
+    semaWriteStmt s e = bind (semaFormatStr s) $ foldr step (Just []) e where
+        step e z = case z of
+            Nothing -> Nothing
+            Just x -> case semaExpr e of
+                Nothing -> Nothing
+                Just (v, a) -> Just $ a : x
+        bind (Just a) (Just b) = Just $ Wt a b
+        bind _ _ = Nothing
+
 
     semaRetStmt :: Ast -> Maybe Ast
     semaRetStmt a = case semaExpr a of
@@ -227,9 +230,9 @@ semaStmtList (StmtList stmts) st = toStmtList $ semaStmts stmts [] where
             Just (t, a) -> Just $ Array (Identifier n) a
         _ -> error $ "undefined or wrong type of " ++ show n
 
-    semaFormatStr :: Ast -> ExprValue -> Maybe Ast
+    semaFormatStr :: Ast -> Maybe Ast
     -- check format string is boring, i don't want to do it...
-    semaFormatStr a _ = Just a
+    semaFormatStr a = Just a
 
     semaExpr x = semaExpr' x
 

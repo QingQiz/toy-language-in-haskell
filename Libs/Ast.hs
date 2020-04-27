@@ -25,7 +25,7 @@ data Ast = Empty
          | FuncCall   Ast [Ast] -- FuncCall ident params
          | Ret        Ast       -- return expr
          | Rd         [Ast]     -- read [id]
-         | Wt         Ast Ast   -- write str expr
+         | Wt         Ast [Ast] -- write fmt-str [expr]
          deriving (Show)
 
 

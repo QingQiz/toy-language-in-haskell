@@ -259,16 +259,9 @@ wt = do
     spcStr "printf"
     spcChar '('
     (do s <- str
-        spcChar ','
-        e <- expr
+        e <- many (spcChar ',' *> expr)
         spcChar ')'
-        return $ Wt s e) <|> (do
-        e <- expr
-        spcChar ')'
-        return $ Wt Empty e) <|> (do
-        s <- str
-        spcChar ')'
-        return $ Wt s Empty)
+        return $ Wt s e)
 
 
 ----------------------------------------------------------
