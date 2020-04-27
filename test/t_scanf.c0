@@ -1,0 +1,13 @@
+int a;
+char b;
+
+int main() {
+    int c;
+    char d;
+    scanf(a, c);
+    printf("%5d\t%05d\n", a, c);
+
+    scanf(b);
+    scanf(b, d);
+    printf("'%c'\t'%c'\n", b, d);
+}
