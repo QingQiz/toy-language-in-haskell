@@ -1,0 +1,21 @@
+char a[10];
+char b, c;
+
+int main() {
+    char e, f;
+
+    a[0] = 12345;
+    printf("a[0] = %d\ta[1] = %d\n", a[0], a[1]);
+    a[1] = 12345;
+    printf("a[1] = %d\ta[0] = %d\n", a[1], a[0]);
+
+    b = 48;
+    printf("b = %d, c = %d\n", b, c);
+    c = 48;
+    printf("b = %d, c = %d\n", b, c);
+
+    e = 49;
+    printf("e = %d, f = %d\n", e, f);
+    f = 49;
+    printf("e = %d, f = %d\n", e, f);
+}
