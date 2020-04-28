@@ -170,11 +170,12 @@ cAStmt (ForStmt init cond step lpbd) rgt =
 cAStmt (Assign (Identifier i) e) rgt =
     let
         (expr, reg) = cExpr e rgt
-        (regl, _) = (\(Just x)->x) $ Map.lookup i rgt
+        (regl, siz) = (\(Just x)->x) $ Map.lookup i rgt
+        inst = if siz == 4 then "\tmovl\t" else "\tmovb\t"
     in
         case e of
-            Number n -> (["\tmovl\t$" ++ show n ++ ", " ++ regl], rgt)
-            _ -> (expr ++ ["\tmovl\t" ++ reg ++ ", " ++ regl], rgt)
+            Number n -> ([inst ++ "$" ++ show n ++ ", " ++ regl], rgt)
+            _ -> (expr ++ [inst ++ reg ++ ", " ++ regl], rgt)
 
 cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
     let
@@ -191,6 +192,7 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
                     then ["\tpushq\t" ++ regv]
                     else ["\tpushq\t" ++ get_high_reg regv]
         (nam,siz) = (\(Just x) -> x) $ Map.lookup i rgt
+        inst = if siz == 4 then "\tmovl\t" else "\tmovb\t"
     in
         (if "(%rip)" `isSuffixOf` nam
         then case ev of
@@ -198,23 +200,23 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
                 ins_cltq ++                                      -- calculate index and save it in %eax
                 ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx"] ++ -- %rdx is the offset of array now
                 ["\tleaq\t" ++ nam ++ ", %rax"] ++
-                ["\tmovl\t$" ++ show n ++ ", (%rdx,%rax)"]
+                [inst ++ "$" ++ show n ++ ", (%rdx,%rax)"]
             _ ->
                 exprv ++ push_regv ++                            -- calculate value and push it into stack
                 ins_cltq ++                                      -- calculate index and save it in %eax
                 ["\tpopq\t%rcx"] ++                              -- %ecx is now value
                 ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx"] ++ -- %rdx is the offset of array now
                 ["\tleaq\t" ++ nam ++ ", %rax"] ++
-                ["\tmovl\t%ecx, (%rdx,%rax)"]
+                [inst ++ "%ecx, (%rdx,%rax)"]
         else case ev of
             Number n ->
                 ins_cltq ++           -- calculate index and save it in %eax
-                ["\tmovl\t$" ++ show n ++ ", " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
+                [inst ++ "$" ++ show n ++ ", " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
             _ ->
                 exprv ++ push_regv ++ -- calculate value and push it into stack
                 ins_cltq ++           -- calculate index and save it in %eax
                 ["\tpopq\t%rdx"] ++   -- %edx is the value
-                ["\tmovl\t%edx, " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
+                [inst ++ "%edx, " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
         , rgt)
 
 cAStmt (Ret e) rgt =
@@ -364,9 +366,13 @@ cExpr (Array (Identifier i) e) rgt =
             _ -> expr ++ (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"]) ++ ["\tcltq"]
 
         regf = get_free_reg ["%eax", "%edx", reg]
-        move_to_free r = ["\tmovl\t" ++ r ++ ", " ++ regf]
+        regfl = get_low_reg regf
 
         (r, s) = (\(Just x) -> x) $ Map.lookup i rgt
+
+        move_to_free r = if s == 4
+                         then ["\tmovl\t" ++ r ++ ", " ++ regf]
+                         else ["\tmovzbl\t" ++ r ++ ", " ++ regf, "\tmovsbl\t" ++ regfl ++ "," ++ regf]
     in
         if "(%rip)" `isSuffixOf` r
         then
@@ -378,7 +384,9 @@ cExpr (Array (Identifier i) e) rgt =
         else
             (mov_inst ++ move_to_free (init r ++ ",%rax," ++ show s ++ ")"), regf)
 
-cExpr (Identifier i) rgt = ([], (\(Just (a, _)) -> a) $ Map.lookup i rgt)
+cExpr (Identifier i) rgt = case Map.lookup i rgt of
+    Just (a, 4) -> ([], a)
+    Just (a, 1) -> (["\tmovzbl\t" ++ a ++ ", %eax", "\tmovsbl\t%al, %eax"], "%eax")
 
 cExpr fc@(FuncCall _ _) rgt = (fst $ cAStmt fc rgt, "%eax")
 
