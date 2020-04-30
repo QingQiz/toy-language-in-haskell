@@ -112,7 +112,7 @@ cStmtList (StmtList sl) rgt = cStmts sl rgt where
 
 cAStmt :: Ast -> RegTable -> ([String], RegTable)
 cAStmt sl@(StmtList _) rgt = cStmtList sl rgt
-cAStmt Empty rgt = (["\tnop"], rgt)
+cAStmt Empty rgt = ([], rgt) -- or return nop
 
 cAStmt (IfStmt c s Empty) rgt =
     let
@@ -141,7 +141,7 @@ cAStmt (DoStmt lb cnd) rgt =
     let
         l_beg = get_label rgt
 
-        rgt' = update_label $ snd body
+        rgt' = update_label rgt
         l_continue = get_label rgt'
 
         rgt'' = update_label rgt'
@@ -151,10 +151,14 @@ cAStmt (DoStmt lb cnd) rgt =
             $ Map.insert ".continue" (l_continue, 0)
             $ Map.insert ".break" (l_break, 0) $ update_label rgt''
 
-        (cmpr, reg) = cExpr cnd rgt
+        (cmpr, reg) = cExpr cnd rgt''
+        cond_inst = case cnd of
+            Number n | n == 0 -> []
+                     | n /= 0 -> ["\tjmp\t" ++ l_beg]
+            _ -> cmpr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_beg]
     in
         ([l_beg ++ ":"] ++ fst body ++
-         [l_continue ++ ":"] ++ cmpr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_beg] ++
+         [l_continue ++ ":"] ++ cond_inst ++
          [l_break ++ ":"]
         , snd body)
 
@@ -179,7 +183,9 @@ cAStmt (ForStmt init cond step lpbd) rgt =
         (cond_expr, reg) = cExpr cond rgt -- expr,, can be empty
 
         cond_inst = case cond of
-            Empty -> []
+            Empty -> ["\tjmp\t" ++ l_body]
+            Number n | n == 0 -> []
+                     | n /= 0 -> ["\tjmp\t" ++ l_body]
             _ -> cond_expr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body]
     in
         (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
