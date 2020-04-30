@@ -5,8 +5,7 @@
 ### C0 grammar
 
 ```
->>>> [_Not Yet] <<<<<
->>>> Implemented  Grammar <<<<<
+>>>> [_] <<<<<
 <id>         ::= <alpha> {<alpha> | <number>}
 <str>        ::= "[32,33,35-126]"
 
@@ -25,8 +24,8 @@
 <param_val>  ::= <expr> {, <expr> } | <empty>
 
 <stmt>       ::= <if_stmt> | <loop_stmt> | \{ <stmt_list> \} | <func_call> ; | <v_func_call> ; | <assig_stmt> ;
-               | <read_stmt> ; | <write_stmt> ; | <empty> ; | <ret_stmt> ;
-<ret_stmt>   ::= return [\(<expr>\)]
+               | <read_stmt> ; | <write_stmt> ; | <empty> ; | <ret_stmt> ; | break ; | continue ;
+<ret_stmt>   ::= return [<expr>]
 <comd_stmt>  ::= [<const_desc>] [<var_desc>] <stmt_list>
 <param_list> ::= <type_id> <id> {, <type_id> <id>} | <empty>
 
@@ -34,10 +33,9 @@
 <stmt_list>  ::= {<stmt>}
 <if_stmt>    ::= if \( <cond> \) <stmt> [else <stmt>]
 <loop_stmt>  ::= do <stmt> while \( <cond \)
-               | for \( <assig_stmt> ; <cond> ; <assig_stmt> \) <stmt>
+               | for \( [<assig_stmt>] ; [<cond>] ; [<assig_stmt>] \) <stmt>
 <read_stmt>  ::= scanf\( <id> {, <id> } \)
-<write_stmt> ::= printf\(<str>, <expr>\) | printf\(<str>\) | printf\(<expr>\)
-
+<write_stmt> ::= printf\(<str>, <expr> {, <expr>}\)
 
 <cond>       ::= <bool_expr>
 <expr>       ::= <bool_expr>
@@ -48,7 +46,6 @@
 <unary_expr> ::= {!} <term>
 <term>       ::= <id> | <idnetifier> \[ <expr> \] | <integer> | <char> | <func_call> | \(<expr>\)
 
->>>> In Lexical <<<<<
 <type_id>    ::= int | char
 <add_op>     ::= + | -
 <mul_op>     ::= * | /
@@ -83,78 +80,23 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o 
 
 ## TODO LIST
 
-- [x] Lexical
-- [x] Grammar
-  - [x] expr
-    - [x] bool expr (|| && !)
-    - [x] cmp expr (> < >= <= == !=)
-    - [x] expr (+ - * /)
-    - [x] id, array
-    - [x] char
-    - [x] func call
-  - [x] stmt
-    - [x] if stmt
-    - [x] loop stmt
-    - [x] comd stmt
-    - [x] stmt list
-    - [x] assig stmt
-    - [x] empty stmt
-    - [x] func call
-    - [x] read stmt
-    - [x] write stmt
-    - [x] ret stmt
-  - [x] program
-    - [x] const desc
-    - [x] var desc
-    - [x] func def
-  - [x] AST
-- [x] Semantic Analysis
-  - [x] const desc
-  - [x] var desc
-  - [x] func def
-  - [x] comd stmt
-  - [x] stmt list
-  - [x] for
-  - [x] do
-  - [x] read
-  - [x] write
-  - [x] return
-  - [x] func call
-  - [x] assign
-  - [x] expr
-    - [x] bin node
-    - [x] unary node
-    - [x] leaf node
-- [x] code generation
-  - [x] global variables
-  - [x] function definations
-  - [x] local variables
-  - [x] stmt list
-  - [x] stmt
-    - [x] stmt-list
-    - [x] empty-stmt
-    - [x] if-stmt
-    - [x] do-stmt
-    - [x] for-stmt
-    - [x] assign-stmt
-    - [x] func-call
-    - [x] read-stmt
-    - [x] write
-    - [x] return
-  - [x] expr
-    - [x] bin-node
-    - [x] unary-node
-    - [x] number
-    - [x] array
-    - [x] func-call
-    - [x] id
-    - [x] char (char is reduced in semantic analysis)
-- [ ] extra
-  - [ ] error reporter
-    - [x] Some crude error messages in semantic analysis
-    - [ ] ...
-  - [ ] optimization
-    - [x] reduce const expr
-    - [ ] ...
+- [ ] error reporter
+  - [x] Some crude error messages in semantic analysis
   - [ ] ...
+
+- [ ] optimization
+  - [x] reduce const expr
+  - [ ] ...
+
+- [ ] test
+  - [x] read-stmt
+  - [x] write-stmt
+  - [x] assign-stmt
+  - [x] if-stmt
+  - [ ] loop-stmt
+    - [ ] for-stmt
+    - [ ] do-stmt
+    - [ ] continue
+    - [ ] break
+
 
