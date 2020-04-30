@@ -56,7 +56,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
 
         get_param_reg pls =
             let l2 = unzip $ map (\(t, Identifier i) -> ((\t -> case t of TInt -> 4; TChar -> 1) t, i)) pls
-                regs = map (\a -> show a ++ "(%rbp)") $ [-4,-8..(-24)] ++ [16,32..]
+                regs = map (\a -> show a ++ "(%rbp)") $ [-4,-8..(-24)] ++ [16,24..]
             in zip (snd l2) $ zip regs $ fst l2 -- (name, (reg, size))
 
         for_pl pls =
@@ -258,11 +258,12 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
 cAStmt (Ret e) rgt =
     let
         (expr, reg) = cExpr e rgt
+        mov_inst = case e of
+            Empty -> ["\tmovl\t$0, %eax"]
+            Number n -> ["\tmovl\t$" ++ show n ++ ", %eax"]
+            _ -> expr ++ (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"])
     in
-        if reg == "%eax"
-        -- return void also clear %eax
-        then (expr ++ ["\tmovl\t%0, %eax", "\tjmp\t" ++ get_end_label rgt], rgt)
-        else (expr ++ ["\tmovl\t" ++ reg ++ ", %eax", "\tjmp\t" ++ get_end_label rgt], rgt)
+        (mov_inst ++ ["\tjmp\t" ++ get_end_label rgt], rgt)
 
 cAStmt (FuncCall (Identifier fn) pl) rgt =
     let
@@ -341,8 +342,8 @@ cExpr (BinNode op l r) rgt =
             Number a -> ([], "$" ++ show a)
             _ -> cExpr r rgt
         (exprr, regr) = cExpr l rgt
-        regl' = get_free_reg [regr, regl]
-        regr' = get_free_reg [regr, regl, regl', "%eax"]
+        regr' = get_free_reg [regr, regl]
+        regl' = get_free_reg [regr, regl, regr']
         hregl  = get_high_reg regl
         hregl' = get_high_reg regl'
     in
