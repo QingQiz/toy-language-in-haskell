@@ -1,0 +1,10 @@
+int main() {
+    int n, a;
+    n = 113829;
+
+    scanf(a);
+    printf("Your Input %5d ", a);
+    if (a > n) printf("> n");
+    else if (a < n) printf("< n");
+    else printf("= n");
+}
