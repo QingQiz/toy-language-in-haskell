@@ -119,6 +119,8 @@ semaStmtList (StmtList stmts) st = toStmtList $ semaStmts stmts [] where
     semaAStmt (FuncCall n pl)   = semaFunCall n pl
     semaAStmt (Empty)           = Just Empty
     semaAStmt as@(Assign _ _)   = semaAssign as
+    semaAStmt (Break)           = Just Break
+    semaAStmt (Continue)        = Just Continue
 
     --             cond  stmt else-stmt
     semaIfStmt :: Ast -> Ast -> Ast -> Maybe Ast
@@ -189,8 +191,8 @@ semaStmtList (StmtList stmts) st = toStmtList $ semaStmts stmts [] where
     --          func-name  param-list
     semaFunCall :: Ast -> [Ast] -> Maybe Ast
     semaFunCall (Identifier fn) pl = case Map.lookup fn st of
-        Nothing -> error $ "call undefined function " ++ show fn
         Just (SFunction _ pld) -> toFuncCall $ foreach pld pl check
+        _ -> error $ "call undefined function " ++ show fn
         where
             foreach (d:ds) (x:xs) f = f d x <> foreach ds xs f
             foreach [] [] _ = Just []

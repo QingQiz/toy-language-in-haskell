@@ -15,6 +15,8 @@ data Ast = Empty
          | ForStmt    Ast Ast Ast Ast -- forstmt beg cond step loop_stmt
          | DoStmt     Ast Ast -- dostmt loop_stmt cond
          | Assign     Ast Ast -- assign left right
+         | Break
+         | Continue
          | ComdStmt   [Ast] [Ast] Ast -- comdstmt const_desc var_desc stmt_list
 
          | Program    [Ast] [Ast] [Ast] -- program const_desc var_desc [func_def]

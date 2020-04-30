@@ -178,7 +178,15 @@ stmt = if_stmt <|> (spcChar '{' *> stmt_list <* spcChar '}') <|> loop_stmt  <|>
       (ret         <* spcChar ';') <|> -- ret stmt
       (func_call   <* spcChar ';') <|> -- func_call
       (nothing     <* spcChar ';') <|> -- empty
-      (assign      <* spcChar ';')     -- assig_stmt
+      (assign      <* spcChar ';') <|> -- assig_stmt
+      ((brk<|>ctn) <* spcChar ';')     -- break or continue
+
+
+brk :: Parser Ast
+brk = spcStr "break" >> return Break
+
+ctn :: Parser Ast
+ctn = spcStr "continue" >> return Continue
 
 
 assign :: Parser Ast

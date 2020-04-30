@@ -140,32 +140,62 @@ cAStmt (IfStmt c s es) rgt =
 cAStmt (DoStmt lb cnd) rgt =
     let
         l_beg = get_label rgt
-        body = cAStmt lb $ update_label rgt
+
+        rgt' = update_label $ snd body
+        l_continue = get_label rgt'
+
+        rgt'' = update_label rgt'
+        l_break = get_label rgt''
+
+        body = cAStmt lb
+            $ Map.insert ".continue" (l_continue, 0)
+            $ Map.insert ".break" (l_break, 0) $ update_label rgt''
+
         (cmpr, reg) = cExpr cnd rgt
     in
-        ([l_beg ++ ":"] ++ fst body ++ cmpr
-         ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_beg], snd body)
+        ([l_beg ++ ":"] ++ fst body ++
+         [l_continue ++ ":"] ++ cmpr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_beg] ++
+         [l_break ++ ":"]
+        , snd body)
 
 cAStmt (ForStmt init cond step lpbd) rgt =
     let
         l_body = get_label rgt
-        l_cond = get_label $ snd loop_body
-        init_stmt = cAStmt init rgt -- assign
-        step_stmt = cAStmt step rgt -- assign
+
+        rgt' = update_label rgt
+        l_continue = get_label rgt'
+
+        rgt'' = update_label rgt'
+        l_cond = get_label rgt''
+
+        rgt''' = update_label rgt''
+        l_break = get_label rgt'''
+
+        init_stmt = cAStmt init $ update_label rgt'''
+        step_stmt = cAStmt step $ snd init_stmt
+        loop_body = cAStmt lpbd
+            $ Map.insert ".continue" (l_continue, 0)
+            $ Map.insert ".break" (l_break, 0) $ snd step_stmt
         (cond_expr, reg) = cExpr cond rgt -- expr,, can be empty
-        loop_body = cAStmt lpbd $ update_label rgt
+
+        cond_inst = case cond of
+            Empty -> []
+            _ -> cond_expr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body]
     in
-        case cond of
-            Empty ->
-                (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
-                 [l_body ++ ":"] ++ fst loop_body ++ fst step_stmt ++
-                 [l_cond ++ ":"]
-                , update_label $ snd loop_body)
-            _ ->
-                (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
-                 [l_body ++ ":"] ++ fst loop_body ++ fst step_stmt ++
-                 [l_cond ++ ":"] ++ cond_expr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body]
-                , update_label $ snd loop_body)
+        (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
+         [l_body ++ ":"] ++ fst loop_body ++
+         [l_continue ++ ":"] ++ fst step_stmt ++
+         [l_cond ++ ":"] ++ cond_inst ++
+         [l_break ++ ":"]
+        , snd loop_body)
+
+cAStmt (Break) rgt = case Map.lookup ".break" rgt of
+    Nothing -> error $ "break-stmt not in a loop-stmt"
+    Just (a, _) -> (["\tjmp\t" ++ a], rgt)
+
+cAStmt (Continue) rgt = case Map.lookup ".continue" rgt of
+    Nothing -> error $ "continue-stmt not in a loop-stmt"
+    Just (a, _) -> (["\tjmp\t" ++ a], rgt)
 
 cAStmt (Assign (Identifier i) e) rgt =
     let

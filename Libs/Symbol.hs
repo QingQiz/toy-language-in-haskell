@@ -30,9 +30,10 @@ data ExprValue = EStrictN Int
 
 empty_st :: Map String Symbol
 empty_st = fromList [
-    ("if",     SReserveSymbol), ("else",   SReserveSymbol),
-    ("for",    SReserveSymbol), ("do",     SReserveSymbol), ("while", SReserveSymbol),
-    ("printf", SReserveSymbol), ("scanf",  SReserveSymbol),
-    ("const",  SReserveSymbol), ("char",   SReserveSymbol), ("int",   SReserveSymbol),
-    ("void",   SReserveSymbol), ("return", SReserveSymbol)]
+    ("if",     SReserveSymbol), ("else",     SReserveSymbol),
+    ("for",    SReserveSymbol), ("do",       SReserveSymbol), ("while", SReserveSymbol),
+    ("break",  SReserveSymbol), ("continue", SReserveSymbol),
+    ("printf", SReserveSymbol), ("scanf",    SReserveSymbol),
+    ("const",  SReserveSymbol), ("char",     SReserveSymbol), ("int",   SReserveSymbol),
+    ("void",   SReserveSymbol), ("return",   SReserveSymbol)]
 
