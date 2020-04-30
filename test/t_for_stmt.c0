@@ -1,0 +1,14 @@
+int main() {
+    int k;
+    int sum;
+    int max;
+
+    sum = 0;
+    scanf(max);
+
+    for (k = 1; k <= max; k = k + 1) {
+        sum = sum + k;
+    }
+
+    printf("%d\n", sum);
+}

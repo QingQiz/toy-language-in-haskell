@@ -1,0 +1,23 @@
+int main() {
+    int a, b;
+
+    a = 3;
+
+    for (;;) {
+        scanf(b);
+
+        if (b != a) {printf("incorrect\n"); continue;}
+
+        printf("correct!");
+        break;
+    }
+
+    do {
+        scanf(b);
+
+        if (b != a) {printf("incorrect\n"); continue;}
+
+        printf("correct!");
+        break;
+    } while (1);
+}
