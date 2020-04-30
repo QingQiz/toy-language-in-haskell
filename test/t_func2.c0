@@ -1,0 +1,7 @@
+int func(int a, char b, int c, char d, int e, char f, int g, char h, int i, char j) {
+    return a + b + c + d + e + f + g + h + i + j;
+}
+
+int main() {
+    printf("%d\n", func(1,'a',2,'b',3,'c',4,'d',5,'e'));
+}
