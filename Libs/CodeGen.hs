@@ -46,7 +46,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
         ++ ["\tret"]
     where
         -- clear %eax if function does not have a return-stmt
-        label_end = ["\tmovl\t$0, %eax", ".L_" ++ fn ++ "_END:"]
+        label_end = [clr_reg "%eax", ".L_" ++ fn ++ "_END:"]
         bind (a, b) c = bind' a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
         bind' a (b, c) = if c /= 0
                          then ["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ label_end ++ ["\tleave"]
@@ -259,7 +259,7 @@ cAStmt (Ret e) rgt =
     let
         (expr, reg) = cExpr e rgt
         mov_inst = case e of
-            Empty -> ["\tmovl\t$0, %eax"]
+            Empty -> [clr_reg "%eax"]
             Number n -> ["\tmovl\t$" ++ show n ++ ", %eax"]
             _ -> expr ++ (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"])
     in
@@ -272,7 +272,7 @@ cAStmt (FuncCall (Identifier fn) pl) rgt =
     in
         ((foldl step_t [] pl) ++ -- calculate all params and push then into stack
          (foldr step_h [] reg_l) ++ -- pop first 6 params
-         ["\tmovl\t$0, %eax", "\tcall\t" ++ fn] ++
+         [clr_reg "%eax", "\tcall\t" ++ fn] ++
          (if null params_t then [] else ["\taddq\t$" ++ show (8 * length params_t) ++ ", %rsp"]) -- release mem
         , rgt)
     where
@@ -298,7 +298,7 @@ cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
                 "\tleaq\t(%rsp), %rax",
                 "\tmovq\t%rdx, %rsi",
                 "\tmovq\t%rax, %rdi",
-                "\tmovl\t$0, %eax",
+                clr_reg "%eax",
                 "\tcall\t__isoc99_scanf@PLT",
                 "\taddq\t$16, %rsp"] ++ zero
 
@@ -317,7 +317,7 @@ cAStmt (Wt (Str s) es) rgt =
     in
         (["\tpushq\t$0"] ++
          foldr (\x z -> ["\tmovabsq\t$" ++ x ++ ", %rax", "\tpushq\t%rax"] ++ z) [] format_str ++
-         a ++ ["\tleaq\t" ++ siz ++ "(%rsp), %rdi", "\tmovl\t$0, %eax"] ++ b ++
+         a ++ ["\tleaq\t" ++ siz ++ "(%rsp), %rdi", clr_reg "%eax"] ++ b ++
          ["\taddq\t$" ++ show (8 + 8 * length format_str) ++ ", %rsp"]
         , rgt)
     where
@@ -343,56 +343,51 @@ cExpr (BinNode op l r) rgt =
             _ -> cExpr r rgt
         (exprr, regr) = cExpr l rgt
         regr' = get_free_reg [regr, regl]
-        regl' = get_free_reg [regr, regl, regr']
+        regl' = get_free_reg [regr, regr']
         hregl  = get_high_reg regl
         hregl' = get_high_reg regl'
+
     in
         case (exprl, exprr) of
-            ([], []) -> (conn_inst "movl" regr regr' ++ bind op regl regr', regr')
-            ([], _ ) -> (exprr ++ bind op regl regr, regr)
-            (_ , []) -> (exprl ++ conn_inst "movl" regr regr' ++ bind op regl regr', regr')
-            (_ , _ ) -> (exprl ++ ["\tpushq\t" ++ hregl] ++
-                         exprr ++ ["\tpopq\t" ++ hregl'] ++ bind op regl' regr, regr)
+            ([], []) -> (conn_inst "movl" regr regr' ++ bind op regl regr', reg_ret regr') -- n op n
+            ([], _ ) -> (exprr ++ bind op regl regr, reg_ret regr) -- r op n
+            (_ , []) -> (exprl ++ conn_inst "movl" regr regr' ++ bind op regl regr', reg_ret regr') -- n op l
+            (_ , _ ) -> (exprl ++ ["\tpushq\t" ++ hregl] ++ -- r op l
+                         exprr ++ ["\tpopq\t" ++ hregl'] ++ bind op regl' regr, reg_ret regr)
     where
-         bind Gt  l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsetg\t"  ++ low] ++ conn_inst "movzbl" low r
-         bind Ls  l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsetl\t"  ++ low] ++ conn_inst "movzbl" low r
-         bind GE  l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsetge\t" ++ low] ++ conn_inst "movzbl" low r
-         bind LE  l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsetle\t" ++ low] ++ conn_inst "movzbl" low r
-         bind Equ l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsete\t"  ++ low] ++ conn_inst "movzbl" low r
-         bind Neq l r = let low = get_low_reg r in
-            conn_inst "cmpl" l r ++ ["\tsetne\t" ++ low] ++ conn_inst "movzbl" low r
-         bind And l r = let low = get_low_reg r in
-            conn_inst "andl" l r ++ conn_inst "cmpl" "$0" r ++ ["\tsetne\t" ++ low] ++ conn_inst "movzbl" low r
-         bind Or  l r = let low = get_low_reg r in
-            conn_inst "orl"  l r ++ conn_inst "cmpl" "$0" r ++ ["\tsetne\t" ++ low] ++ conn_inst "movzbl" low r
-         bind Add l r = conn_inst "addl"  l r
-         bind Sub l r = conn_inst "subl"  l r
-         bind Mul l r = conn_inst "imull" l r
-         bind Div l r = let r' = get_free_reg [l, r, "%eax"] in
-            if l == "%eax" then
-                ["\tcltq", "\tidivl\t" ++ r] ++ conn_inst "movl" l r
-            else
-                if r == "%eax" then
-                    conn_inst "movl" r r' ++ conn_inst "movl" l "%eax" ++ ["\tcltq", "\tidivl\t" ++ r']
-                else
-                    conn_inst "movl" l "%eax" ++ ["\tcltq", "\tidivl\t" ++ r] ++ conn_inst "movl" "%eax" r
-
-         conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
+        bind Gt  l r = conn_inst "cmpl"  l r ++ set_reg "g"  r
+        bind Ls  l r = conn_inst "cmpl"  l r ++ set_reg "l"  r
+        bind GE  l r = conn_inst "cmpl"  l r ++ set_reg "ge" r
+        bind LE  l r = conn_inst "cmpl"  l r ++ set_reg "le" r
+        bind Equ l r = conn_inst "cmpl"  l r ++ set_reg "e"  r
+        bind Neq l r = conn_inst "cmpl"  l r ++ set_reg "ne" r
+        bind Or  l r = conn_inst "orl"   l r ++ conn_inst "cmpl" "$0" r ++ set_reg "ne" r
+        bind And l r = bind Mul          l r ++ conn_inst "cmpl" "$0" r ++ set_reg "ne" r
+        bind Add l r = conn_inst "addl"  l r
+        bind Sub l r = conn_inst "subl"  l r
+        bind Mul l r = conn_inst "imull" l r
+        bind Div l r = let l' = get_free_reg [l, r, "%eax"] in
+           if r == "%eax" then
+               ["\tcltd", "\tidivl\t" ++ l]
+           else
+               if l == "%eax" then
+                   conn_inst "movl" l l' ++ conn_inst "movl" r "%eax" ++ ["\tcltd", "\tidivl\t" ++ l']
+               else
+                   conn_inst "movl" r "%eax" ++ ["\tcltd", "\tidivl\t" ++ l]
+        reg_ret r = case op of
+            Div -> "%eax"
+            _ -> r
+        conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
+        set_reg i reg = let low = get_low_reg reg in
+            ["\tset" ++ i ++ "\t" ++ low] ++ conn_inst "movzbl" low reg
 
 cExpr (UnaryNode Not e) rgt =
     let
         (expr, reg) = cExpr e rgt
-        reg' = get_free_reg [reg]
-        low = get_low_reg reg'
     in
-        (["\tcmpl\t$0, " ++ reg, "\tsete\t" ++ low, "\tmovabsq\t" ++ low ++ ", " ++ reg'], reg')
+        (["\tcmpl\t$0, " ++ reg, "\tsete\t%al", "\tmovzbl\t%al, %eax"], "%eax")
 
-cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %esi"], "%esi")
+cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %eax"], "%eax")
 
 cExpr (Array (Identifier i) e) rgt =
     let

@@ -13,6 +13,8 @@ registers = [
     [ "%r8", "%r8d", "%r8w", "%r8b"],
     [ "%r9", "%r9d", "%r9w", "%r9b"]]
 
+clr_reg r = "\txorl\t" ++ r ++ ", " ++ r
+
 get_reg_index x = (!!) registers $ fromMaybe $ elemIndex True $ map (x `elem`) registers
     where fromMaybe (Just a) = a
           fromMaybe Nothing = error $ show x
