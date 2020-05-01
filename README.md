@@ -88,15 +88,3 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o 
   - [x] reduce const expr
   - [ ] ...
 
-- [ ] test
-  - [x] read-stmt
-  - [x] write-stmt
-  - [x] assign-stmt
-  - [x] if-stmt
-  - [ ] loop-stmt
-    - [ ] for-stmt
-    - [ ] do-stmt
-    - [ ] continue
-    - [ ] break
-
-
