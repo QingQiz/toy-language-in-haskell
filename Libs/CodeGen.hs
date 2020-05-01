@@ -207,11 +207,13 @@ cAStmt (Assign (Identifier i) e) rgt =
     let
         (expr, reg) = cExpr e rgt
         (regl, siz) = (\(Just x)->x) $ Map.lookup i rgt
-        inst = if siz == 4 then "\tmovl\t" else "\tmovb\t"
+        inst = case (e, siz) of
+            (Number n, 1) -> "\tmovb\t$" ++ show n ++ ", " ++ regl
+            (Number n, 4) -> "\tmovl\t$" ++ show n ++ ", " ++ regl
+            (_       , 1) -> "\tmovb\t" ++ get_low_reg reg ++ ", " ++ regl
+            (_       , 4) -> "\tmovl\t" ++ reg ++ ", " ++ regl
     in
-        case e of
-            Number n -> ([inst ++ "$" ++ show n ++ ", " ++ regl], rgt)
-            _ -> (expr ++ [inst ++ reg ++ ", " ++ regl], rgt)
+        (expr ++ [inst], rgt)
 
 cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
     let
@@ -228,7 +230,13 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
                     then ["\tpushq\t" ++ regv]
                     else ["\tpushq\t" ++ get_high_reg regv]
         (nam,siz) = (\(Just x) -> x) $ Map.lookup i rgt
-        inst = if siz == 4 then "\tmovl\t" else "\tmovb\t"
+
+        instn a b = case siz of
+            1 -> "\tmovb\t$" ++ show a ++ ", " ++ b
+            4 -> "\tmovl\t$" ++ show a ++ ", " ++ b
+        inst  a b = case siz of
+            1 -> "\tmovb\t" ++ get_low_reg a ++ ", " ++ b
+            4 -> "\tmovl\t" ++ a ++ ", " ++ b
     in
         (if "(%rip)" `isSuffixOf` nam
         then case ev of
@@ -236,23 +244,23 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
                 ins_cltq ++                                      -- calculate index and save it in %eax
                 ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx"] ++ -- %rdx is the offset of array now
                 ["\tleaq\t" ++ nam ++ ", %rax"] ++
-                [inst ++ "$" ++ show n ++ ", (%rdx,%rax)"]
+                [instn n "(%rdx,%rax)"]
             _ ->
                 exprv ++ push_regv ++                            -- calculate value and push it into stack
                 ins_cltq ++                                      -- calculate index and save it in %eax
                 ["\tpopq\t%rcx"] ++                              -- %ecx is now value
                 ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx"] ++ -- %rdx is the offset of array now
                 ["\tleaq\t" ++ nam ++ ", %rax"] ++
-                [inst ++ "%ecx, (%rdx,%rax)"]
+                [inst "%ecx" "(%rdx,%rax)"]
         else case ev of
             Number n ->
                 ins_cltq ++           -- calculate index and save it in %eax
-                [inst ++ "$" ++ show n ++ ", " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
+                [instn n $ init nam ++ ",%rax," ++ show siz ++ ")"]
             _ ->
                 exprv ++ push_regv ++ -- calculate value and push it into stack
                 ins_cltq ++           -- calculate index and save it in %eax
                 ["\tpopq\t%rdx"] ++   -- %edx is the value
-                [inst ++ "%edx, " ++ init nam ++ ",%rax," ++ show siz ++ ")"]
+                [inst "%edx" $ init nam ++ ",%rax," ++ show siz ++ ")"]
         , rgt)
 
 cAStmt (Ret e) rgt =
