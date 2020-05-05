@@ -1,6 +1,6 @@
 int main() {
     int n, a;
-    n = 113829;
+    n = 2;
 
     scanf(a);
     printf("Your Input %5d ", a);
