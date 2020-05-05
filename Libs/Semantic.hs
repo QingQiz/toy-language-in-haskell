@@ -1,4 +1,4 @@
-module Semantic where
+module Semantic(runSema) where
 
 import Ast
 import Symbol
@@ -8,6 +8,8 @@ import Data.Char
 import Data.Semigroup hiding ((<>))
 import Data.Map as Map hiding (foldl, foldr, map)
 
+
+runSema = semaProgram
 
 semaProgram :: Ast -> Maybe Ast
 semaProgram (Program cst var fun) =
@@ -267,11 +269,14 @@ semaStmtList (StmtList stmts) st = toStmtList $ semaStmts stmts [] where
 
             putValue v = Just (EStrictN v, Number v)
 
-    semaExpr' (UnaryNode Not a) = case semaExpr' a of
-        Just (EStrictN n, _) -> let x = fromEnum $ n == 0 in Just (EStrictN x, Number x)
+    semaExpr' (UnaryNode op a) = case semaExpr' a of
+        Just (EStrictN n, _) -> case op of
+            Neg -> let x = negate n in Just (EStrictN x, Number x)
+            Not -> let x = fromEnum $ n == 0 in Just (EStrictN x, Number x)
         Just (ENot, (UnaryNode _ a)) -> Just (EVariable, a)
-        Just (EArray, _) -> error $ "Not is not allowed to a array value"
-        Just (_, a) -> Just (ENot, UnaryNode Not a)
+        Just (_, a) -> case op of
+            Neg -> Just (ENot, UnaryNode Neg a)
+            Not -> Just (ENot, UnaryNode Not a)
         _ -> Nothing
 
     semaExpr' (Number n) = Just (EStrictN n, Number n)

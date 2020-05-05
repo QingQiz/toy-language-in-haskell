@@ -31,7 +31,7 @@ data Ast = Empty
          deriving (Show)
 
 
-data Op = Not
+data Op = Not | Neg
         | Mul | Div
         | Add | Sub
         | Gt  | Ls  | GE  | LE  | Equ | Neq

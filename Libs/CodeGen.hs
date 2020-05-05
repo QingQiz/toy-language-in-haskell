@@ -1,4 +1,4 @@
-module CodeGen where
+module CodeGen(runCodeGen) where
 
 import Ast
 import Symbol
@@ -8,6 +8,8 @@ import Data.Char
 import Data.List
 import Data.List.Utils
 import qualified Data.Map as Map
+
+runCodeGen = cProgram
 
 
 cProgram :: Ast -> [String]
@@ -394,6 +396,14 @@ cExpr (UnaryNode Not e) rgt =
         (expr, reg) = cExpr e rgt
     in
         (["\tcmpl\t$0, " ++ reg, "\tsete\t%al", "\tmovzbl\t%al, %eax"], "%eax")
+
+cExpr (UnaryNode Neg e) rgt =
+    let
+        (expr, reg) = cExpr e rgt
+    in
+        if last reg == ')'
+        then (["\tmovl\t" ++ reg ++ ", %eax", "\tnegl\t%eax"], "%eax")
+        else (["\tnegl\t" ++ reg], reg)
 
 cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %eax"], "%eax")
 
