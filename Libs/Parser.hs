@@ -29,15 +29,13 @@ newtype Parser a = Parser {
 
 instance Alternative Parser where
     empty = throwError $ DefaultError ""
-    p1 <|> p2 = p1 `catchError` \e1 -> p2 `catchError` \e2 -> throwError e1
-
-
-p1 <?> p2 = (try p1) <|> (try p2)
+    p1 <|> p2 = p1 <?> p2
 
 
 try :: Parser a -> Parser a
 try p = Parser (lift get) >>= \s -> p `catchError` \e -> Parser $ lift (put s) >> throwError e
 
+p1 <?> p2 = try p1 `catchError` \_ -> try p2
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy f = do
@@ -90,8 +88,10 @@ putErr (Left (DefaultError a)) = putStrLn a
 --                 some instances of Parser                     --
 ------------------------------------------------------------------
 char c   = satOrError (==c)       $ "Excepted char: " ++ show c
+-- char c   = satisfy (==c)
 space    = satOrError isSpace     $ "Excepted a space"
 digit    = satOrError isDigit     $ "Excepted a digit"
+letter   = satOrError isLetter    $ "Excepted a letter"
 oneOf cs = satOrError (`elem` cs) $ "Excepted one char of [" ++ cs ++ "]"
 
 string str = string' str `catchPErr` ("Excepted string: " ++ show str) where
