@@ -1,4 +1,4 @@
-module Grammar(buildAst) where
+module Grammar where
 
 import Ast
 import Parser
@@ -13,11 +13,12 @@ buildAst = parse program
 -- id
 ident  = Identifier <$> id_parser where
     id_parser = (++)
-        <$> (many space >> some (letter <?> char '_' `catchPErr` "Excepted char '_' or a letter"))
-        <*> (many (letter <?> digit <?> char '_' `catchPErr` "Excepted char '_' or a letter or a digit"))
+        <$> (many space >> some (letter <?> char '_' `catchPErr` "Excepted char '_' or a `letter'"))
+        <*> (many (letter <?> digit <?> char '_' `catchPErr` "Excepted char '_' or a `letter' or a `digit'"))
 
 -- type
-pType = (spcStr "int " >> return TInt) <?> (spcStr "char " >> return TChar)
+pType = (strWithSpc "int" >> return TInt) <?> (strWithSpc "char" >> return TChar)
+    `catchPErr` "Excepted string \"int\" or string \"char\""
 
 -- char
 ch = fmap Ch $ spcChar '\'' *> (satisfy $ \_ -> True) <* char '\''
@@ -36,14 +37,14 @@ nothing = string "" >> return Empty
 
 -- array
 array = Array <$> ident
-    <*> (spcChar '[' *> expr <* spcChar ']') `catchPErr` "Excepted a array (like `id[expr]')"
+    <*> (spcChar '[' *> expr <* spcChar ']') `catchPErr` "Excepted a `array'"
 
 -- expression, cond-expr
 expr = bool_expr
 cond = bool_expr
 
 -- bool-expr
-bool_expr = chainl (pBinValS "&&" And <?> pBinValS "||" Or) cmp_expr `catchPErr` "Excepted a bool-expr" where
+bool_expr = chainl (pBinValS "&&" And <?> pBinValS "||" Or) cmp_expr `catchPErr` "Excepted a `bool-expr'" where
     pBinValS = pBinVal spcStr
 
 -- cmp-expr
@@ -51,17 +52,17 @@ cmp_expr = let pBinValS = pBinVal spcStr in
     chainl (pBinValS ">=" GE <?> pBinValS "<=" LE <?>
             pBinValS ">"  Gt <?> pBinValS "<"  Ls <?>
             pBinValS "==" Equ<?> pBinValS "!=" Neq
-            `catchPErr` "Excepted a comparison symbol") arith_expr `catchPErr` "Excepted a comparison-expr"
+            `catchPErr` "Excepted a `comparison symbol'") arith_expr `catchPErr` "Excepted a `comparison-expr'"
 
 -- arith-expr
 arith_expr = let pBinValC = pBinVal spcChar in
     chainl (pBinValC '+' Add <?> pBinValC '-' Sub `catchPErr` "Excepted char '+' or char '-'") factor
-    `catchPErr` "Excepted a addition-expr or subtraction-expr"
+    `catchPErr` "Excepted a `addition-expr' or `subtraction-expr'"
 
 -- factor-expr
 factor = chainl (pBinVal spcChar '*' Mul <?> pBinVal spcChar '/' Div
                 `catchPErr` "Excepted char '*' or char '/'") unary_expr
-    `catchPErr` "Excepted a multiplication-expr or divison-expr"
+    `catchPErr` "Excepted a `multiplication-expr' or `divison-expr'"
 
 -- unary-expr
 unary_expr = unaryOpChain (pUnaryValue spcChar '!' Not <?>
@@ -70,10 +71,12 @@ unary_expr = unaryOpChain (pUnaryValue spcChar '!' Not <?>
 
 -- term
 term = int <?> (spcChar '(' *> expr <* spcChar ')') <?> func_call <?> array <?> ident <?> ch
+    `catchPErr` "Excepted a(n) `integer' or `expr' or `function call' or `array' or `identifier' or `char'"
 
 -- stmt
 stmt = if_stmt <?> (spcChar '{' *> stmt_list <* spcChar '}') <?> loop_stmt
     <?> ((rd <?> wt <?> ret <?> func_call <?> assign <?> brk <?> ctn <?> nothing) <* spcChar ';')
+    `catchPErr` "Excepted a `statement' or `statement-list'"
 
 -- break & continue
 brk = spcStr "break" >> return Break
@@ -81,7 +84,7 @@ ctn = spcStr "continue" >> return Continue
 
 -- assign
 assign = Assign
-    <$> (array <?> ident `catchPErr` "Excepted a array or a Identifier")
+    <$> (array <?> ident `catchPErr` "Excepted an `array' or `identifier'")
     <*> (spcChar '=' >> expr)
 
 -- comd-stmt
@@ -94,7 +97,7 @@ stmt_list = fmap StmtList $ many stmt
 if_stmt = IfStmt
     <$> (spcStr "if" >> spcChar '(' *> cond <* spcChar ')')
     <*> (many space >> stmt)
-    <*> ((spcStr "else" >> some space >> stmt) <?> nothing)
+    <*> ((strWithSpc "else" >> stmt) <?> nothing)
 
 -- loop-stmt
 loop_stmt = do_stmt <?> for_stmt
@@ -123,27 +126,28 @@ rd = Rd <$> (spcStr "scanf" >> spcChar '(' *> sepBy (spcChar ',') ident <* spcCh
 wt = Wt <$> (spcStr "printf" >> spcChar '(' >> str) <*> (many (spcChar ',' *> expr) <* spcChar ')')
 
 -- program
-program = Program <$> const_desc <*> var_desc <*> (many func_def <* many space)
+program = Program <$> const_desc <*> var_desc <*> (some func_def <* (many space >> eof))
 
 -- const reputation
-const_desc = many (spcStr "const " >> const_def <* spcChar ';')
+const_desc = many (strWithSpc "const" >> const_def <* spcChar ';')
 
-const_def  = ((spcStr "int " >> pConstNode TInt) <?> (spcStr "char " >> pConstNode TChar))
-    <*> sepBy (spcChar ',') ((,) <$> ident <*> (int <?> ch))
+const_def  = ((strWithSpc "int" >> pConstNode TInt) <?> (strWithSpc "char" >> pConstNode TChar))
+    <*> sepBy (spcChar ',') ((,) <$> ident <*> (spcChar '=' >> int <?> ch))
 
 -- variable reputation
 var_desc = many (var_def <* spcChar ';')
 
-var_def = (spcStr "int" >> pVarNode TInt) <?> (spcStr "char" >> pVarNode TChar)
+var_def = (strWithSpc "int" >> pVarNode TInt) <?> (strWithSpc "char" >> pVarNode TChar)
     <*> sepBy (spcChar ',') (array_def <?> ident)
     where
         array_def = Array <$> ident <*> (spcChar '[' >> uint <* spcChar ']')
 
 -- func_def :: Parser Ast
-func_def = (many space >> (pFuncVal "int " FInt <?> pFuncVal "char " FChar <?> pFuncVal "void " FVoid))
+func_def = (many space >> (pFuncVal "int" FInt <?> pFuncVal "char" FChar <?> pFuncVal "void" FVoid))
     <*> ident
     <*> (spcChar '(' >> sepByE (spcChar ',') ((,) <$> pType <*> ident) <* spcChar ')')
     <*> (spcChar '{' >> comd_stmt <* spcChar '}')
+    `catchPErr` "Excepted a `function-defination'"
 
 --  help functions
 pUnaryNode = return . UnaryNode
@@ -157,5 +161,5 @@ pConstNode = return . ConstDef
 pVarNode = return . VarDef
 
 pFuncNode = return . FuncDef
-pFuncVal s t = spcStr s >> pFuncNode t
+pFuncVal s t = strWithSpc s >> pFuncNode t
 
