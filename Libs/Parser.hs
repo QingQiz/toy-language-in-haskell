@@ -10,13 +10,14 @@ import Control.Monad.Except
 import Control.Applicative
 
 
-newtype Pos = Pos (Int, Int)
+newtype Pos = Pos (Int, Int) deriving (Eq, Ord, Show)
 
 data ParseError = DefaultError String
                 | ErrorWithPos String Pos
                 | EofError Pos
+                deriving (Eq, Ord, Show)
 
-newtype PString = PString (String, Pos)
+newtype PString = PString (String, Pos) deriving (Show)
 
 newtype Parser a = Parser {
         -- ExceptT :: m (Either a b) -> ExceptT a m b
@@ -55,6 +56,9 @@ satisfy f = do
             | otherwise ->
                 throwError $ ErrorWithPos ("Unexcepted char " ++ show x) pos
 
+-- get current position
+peek = (\(PString (s, p)) -> p) <$> (Parser $ lift get)
+
 parse :: Parser a -> String -> Either ParseError a
 parse p s = case (runState . runExceptT . runParser) p (PString (s, Pos (1, 1))) of
     (Left err, _) -> Left (DefaultError $ showErr err s)
@@ -74,8 +78,8 @@ showErr e inp = case e of
 
 catchPErr :: Parser a -> String -> Parser a
 catchPErr pa s = pa `catchError` \err -> case err of
-    ErrorWithPos e p                -> throwError $ ErrorWithPos (e ++ "\n - " ++ s) p
-    a                               -> throwError a
+    ErrorWithPos e p -> throwError $ ErrorWithPos (e ++ "\n - " ++ s) p
+    a                -> throwError a
 
 
 satOrError :: (Char -> Bool) -> String -> Parser Char
