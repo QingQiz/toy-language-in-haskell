@@ -10,13 +10,11 @@ import Control.Monad.Except
 import Control.Applicative
 
 
-newtype Pos = Pos (Int, Int) deriving (Eq, Ord, Show)
+newtype Pos = Pos (Int, Int)
 
 data ParseError = DefaultError String
                 | ErrorWithPos String Pos
                 | EofError Pos
-                | UnionError ParseError [ParseError]
-                deriving (Eq, Ord, Show)
 
 newtype PString = PString (String, Pos)
 
@@ -38,12 +36,7 @@ try :: Parser a -> Parser a
 try p = Parser (lift get) >>= \s -> p `catchError` \e -> Parser $ lift (put s) >> throwError e
 
 infixl 4 <?>
-p1 <?> p2 = try p1
-    `catchError` \e1 -> case e1 of
-        UnionError _ _  -> throwError e1
-        e               -> throwError $ UnionError e []
-    `catchError` \(UnionError e el) -> try p2
-    `catchError` \e2 -> throwError (UnionError e2 (e:el))
+p1 <?> p2 = try p1 `catchError` \_ -> try p2
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy f = do
@@ -62,7 +55,6 @@ satisfy f = do
             | otherwise ->
                 throwError $ ErrorWithPos ("Unexcepted char " ++ show x) pos
 
-
 parse :: Parser a -> String -> Either ParseError a
 parse p s = case (runState . runExceptT . runParser) p (PString (s, Pos (1, 1))) of
     (Left err, _) -> Left (DefaultError $ showErr err s)
@@ -74,22 +66,16 @@ showErr e inp = case e of
     DefaultError s              -> s
     EofError       (Pos (a, b)) -> show a ++ ":" ++ show b ++ ": \x1b[91mparse error\x1b[0m: End of Input"
     ErrorWithPos s (Pos (a, b)) -> let n = length $ show a in
-        show a ++ ":" ++ show b ++ ": \x1b[91mparse error\x1b[0m:\n - " ++ s ++ "\n" ++
+        show a ++ ":" ++ show b ++ ": \x1b[91mparse error\x1b[0m:\n" ++ "\n" ++
         replicate n ' ' ++ " \x1b[94m|\n" ++
         show a ++ " | \x1b[0m" ++ lines inp !! (a - 1) ++ "\n" ++
-        replicate n ' ' ++ " \x1b[94m|\x1b[91m " ++ replicate (b - 1) ' ' ++ "^\x1b[0m"
-    UnionError e el -> intercalate "\n\n\n" $ foldr step [] (e:el) where
-        step x z = showErr x inp : z
+        replicate n ' ' ++ " \x1b[94m|\x1b[91m " ++ replicate (b - 1) ' ' ++ "^\x1b[0m\n"
 
 
 catchPErr :: Parser a -> String -> Parser a
 catchPErr pa s = pa `catchError` \err -> case err of
-    UnionError (ErrorWithPos e p) l -> throwError $ UnionError (ErrorWithPos (e ++ "\n - " ++ s) p) l
     ErrorWithPos e p                -> throwError $ ErrorWithPos (e ++ "\n - " ++ s) p
     a                               -> throwError a
-
-infixl 0 </>
-a </> b = a `catchPErr` b
 
 
 satOrError :: (Char -> Bool) -> String -> Parser Char
@@ -102,7 +88,6 @@ putErr (Left (DefaultError a)) = putStrLn a
 --                 some instances of Parser                     --
 ------------------------------------------------------------------
 char c   = satOrError (==c)       $ "Excepted char: " ++ show c
--- char c   = satisfy (==c)
 space    = satOrError isSpace     $ "Excepted a space"
 digit    = satOrError isDigit     $ "Excepted a digit"
 letter   = satOrError isLetter    $ "Excepted a letter"
@@ -121,7 +106,6 @@ string str = string' str `catchPErr` ("Excepted string: " ++ show str) where
 
 uInt :: Parser Int
 uInt = (fmap read $ ((:) <$> (many space >> (oneOf "123456789")) <*> many digit) <?> string "0")
-    `catchPErr` "Excepted a unsigned int"
 
 sInt :: Parser Int
 sInt = (string "+" <?> string "-" <?> string "") >>= toInt (many space >> uInt) where
