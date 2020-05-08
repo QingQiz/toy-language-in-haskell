@@ -37,6 +37,7 @@ instance Alternative Parser where
 try :: Parser a -> Parser a
 try p = Parser (lift get) >>= \s -> p `catchError` \e -> Parser $ lift (put s) >> throwError e
 
+infixl 4 <?>
 p1 <?> p2 = try p1
     `catchError` \e1 -> case e1 of
         UnionError _ _  -> throwError e1
@@ -86,6 +87,9 @@ catchPErr pa s = pa `catchError` \err -> case err of
     UnionError (ErrorWithPos e p) l -> throwError $ UnionError (ErrorWithPos (e ++ "\n - " ++ s) p) l
     ErrorWithPos e p                -> throwError $ ErrorWithPos (e ++ "\n - " ++ s) p
     a                               -> throwError a
+
+infixl 0 </>
+a </> b = a `catchPErr` b
 
 
 satOrError :: (Char -> Bool) -> String -> Parser Char
