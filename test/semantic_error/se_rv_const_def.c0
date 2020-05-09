@@ -1,0 +1,2 @@
+const int do = 1;
+int f() {}
