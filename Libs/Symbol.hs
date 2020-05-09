@@ -8,7 +8,7 @@ type SymbolTable = Map String Symbol
 
 
 data Symbol = SReserveSymbol
-            | STempSymbol
+            | STempSymbol String Symbol
             | SVariable SType
             | SArray SType SSize
             | SConst SType Int
@@ -17,16 +17,7 @@ data Symbol = SReserveSymbol
 
 data SType = SInt | SChar | SVoid  deriving (Show)
 
-
 type SSize = Int
-
-
-data ExprValue = EStrictN Int
-               | EVariable
-               | ENot
-               | EArray
-               deriving (Show)
-
 
 empty_st :: Map String Symbol
 empty_st = fromList [
