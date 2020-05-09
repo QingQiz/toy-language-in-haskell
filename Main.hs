@@ -18,7 +18,7 @@ run (fn:xs) = do
     s <- readFile fn
     case buildAst s of
         Right a -> putStrLn $ unlines $ runCodeGen $ get_ast' $ runSema a
-        Left (DefaultError a) -> die(a)
+        a -> putErr a
 
 main :: IO ()
 main = do

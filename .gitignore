@@ -1,4 +1,8 @@
 *.hi
 *.o
+*.s
+*.out
+.hpc
+*.swp
 
 cpr
