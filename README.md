@@ -80,10 +80,6 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o 
 
 ## TODO LIST
 
-- [ ] error reporter
-  - [x] Some crude error messages in semantic analysis
-  - [ ] ...
-
 - [ ] optimization
   - [x] reduce const expr
   - [ ] ...

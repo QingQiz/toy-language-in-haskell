@@ -16,6 +16,6 @@ test :
 clean:
 	@rm -f ./*.tix
 	@rm -f ./.hpc/*.mix
-	@rmdir ./.hpc
+	@rmdir ./.hpc 2>/dev/null || true
 	@rm -f ./*.hi ./*.o
 	@rm -f $(src_dir)/*.hi $(src_dir)/*.o
