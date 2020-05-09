@@ -156,9 +156,9 @@ semaAStmt (Rd p rd) sc st = toReadStmt $ for_rest rd where
         Just (SVariable _)    -> Just $ Identifier p x
         Nothing               -> putSemaError sc p "Variable not in scope:" x
         Just (SArray SInt _)  -> putSemaError sc p
-            ("Couldn't match excepted type " ++ srd_str "int" ++ "with actual type " ++ srd_str "int[]" ++ ":") x
+            ("Couldn't match excepted type " ++ srd_str "int" ++ " with actual type " ++ srd_str "int[]" ++ ":") x
         Just (SArray SChar _) -> putSemaError sc p
-            ("Couldn't match excepted type " ++ srd_str "char" ++ "with actual type " ++ srd_str "char[]" ++ ":") x
+            ("Couldn't match excepted type " ++ srd_str "char" ++ " with actual type " ++ srd_str "char[]" ++ ":") x
         Just (SConst _ _)     -> putSemaError sc p "Couldn't read into a const:" x
         Just (SFunction _ _)  -> putSemaError sc p "Couldn't read into a function:" x
         Just SReserveSymbol   -> putSemaError sc p "Use a reserve symbol:" x
@@ -192,7 +192,7 @@ semaAStmt (Ret p e) sc st = case semaExpr e sc st of
 semaAStmt (FuncCall p (Identifier pi fn) pl) sc st = case Map.lookup fn st of
     Just (SFunction _ pld) -> toFuncCall $ foreach pld pl check
     Just (SVariable _)     -> putSemaError sc p "Call a variable:" fn
-    Just (SArray _ _)      -> putSemaError sc p "Call a array:" fn
+    Just (SArray _ _)      -> putSemaError sc p "Call an array:" fn
     Just (SConst _ _)      -> putSemaError sc p "Call a const:" fn
     Just SReserveSymbol    -> putSemaError sc p "Call a reserve symbol:" fn
     _                      -> putSemaError sc p "Function not in scope:" fn
@@ -274,9 +274,9 @@ semaExpr ident@(Identifier p i) sc st = case Map.lookup i st of
     Just x@(SVariable _)   -> Just ident
     Just x@(SConst _  _)   -> Just ident
     Just x@(SArray _  _)   -> putSemaError sc p
-        ("Couldn't match excepted type " ++ srd_str "int/char" ++ "with actual type " ++ srd_str "array" ++ ":") i
+        ("Couldn't match excepted type " ++ srd_str "int/char" ++ " with actual type " ++ srd_str "array" ++ ":") i
     Just x@(SFunction _ _) -> putSemaError sc p
-        ("Couldn't match excepted type " ++ srd_str "int/char" ++ "with actual type " ++ srd_str "function" ++ ":") i
+        ("Couldn't match excepted type " ++ srd_str "int/char" ++ " with actual type " ++ srd_str "function" ++ ":") i
     Just SReserveSymbol    -> putSemaError sc p "Use a reserve symbol:" i
     Nothing                -> putSemaError sc p "Variable not in scope:" i
 

@@ -74,8 +74,8 @@ stmt = if_stmt
     <?> ((rd <?> wt <?> ret <?> func_call <?> assign <?> brk <?> ctn <?> nothing) <* spcChar ';')
 
 -- break & continue
-brk = spcStr "break" >> (Break <$> peek)
-ctn = spcStr "continue" >> (Continue <$> peek)
+brk = peek >>= (\x -> spcStr "break"    >> return (Break x))
+ctn = peek >>= (\x -> spcStr "continue" >> return (Continue x))
 
 -- assign
 assign = Assign <!> (array <?> ident) <*> (spcChar '=' >> expr)
@@ -145,10 +145,10 @@ func_def = let pFuncVal = pVal FuncDef in
     <*> (spcChar '{' >> comd_stmt <* spcChar '}')
 
 --  help functions
-pBinVal f a b = peek >>= (\pk -> f a >> return pk) >>= (\pk -> return (BinNode b pk))
+pBinVal f a b = many space >> peek >>= (\pk -> f a >> return pk) >>= (\pk -> return (BinNode b pk))
 
-pVal vc s t = peek >>= (\f -> strWithSpc s >> return f) >>= (\f -> return $ vc t f)
+pVal vc s t = many space >> peek >>= (\f -> strWithSpc s >> return f) >>= (\f -> return $ vc t f)
 
 infixl 4 <!>
-a <!> b = a <$> peek <*> b
+a <!> b = a <$> (many space >> peek) <*> b
 
