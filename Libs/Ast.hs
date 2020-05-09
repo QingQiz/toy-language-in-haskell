@@ -1,6 +1,6 @@
 module Ast where
 
-import Parser(Pos)
+type Pos = (Int, Int)
 
 data Ast = Empty
          | Number     Pos Int
@@ -21,7 +21,7 @@ data Ast = Empty
          | Continue   Pos
          | ComdStmt   Pos [Ast] [Ast] Ast -- comdstmt const_desc var_desc stmt_list
 
-         | Program    Pos [Ast] [Ast] [Ast] -- program const_desc var_desc [func_def]
+         | Program    String [Ast] [Ast] [Ast] -- program const_desc var_desc [func_def]
          | ConstDef   Type Pos [(Ast, Ast)] -- ConstDef type [(id, int | ch)]
          | VarDef     Type Pos [Ast] -- VarDef type [dec]
         -- FuncDef  ret_type name [(param_type, param_name)] func_body

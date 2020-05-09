@@ -119,7 +119,7 @@ rd = Rd <!> (spcStr "scanf" >> spcChar '(' *> sepBy (spcChar ',') ident <* spcCh
 wt = Wt <!> (spcStr "printf" >> spcChar '(' >> str) <*> (many (spcChar ',' *> expr) <* spcChar ')')
 
 -- program
-program = Program <!> const_desc <*> var_desc <*> (some func_def <* (many space >> eof))
+program = Program <$> peekSC <*> const_desc <*> var_desc <*> (some func_def <* (many space >> eof))
 
 -- const reputation
 const_desc = many (strWithSpc "const" >> const_def <* spcChar ';')
@@ -147,9 +147,8 @@ func_def = let pFuncVal = pVal FuncDef in
 --  help functions
 pBinVal f a b = peek >>= (\pk -> f a >> return pk) >>= (\pk -> return (BinNode b pk))
 
-pVal vs s t = peek >>= (\f -> strWithSpc s >> return f) >>= (\f -> return $ vs t f)
+pVal vc s t = peek >>= (\f -> strWithSpc s >> return f) >>= (\f -> return $ vc t f)
 
-infixl 4 <!> 
+infixl 4 <!>
 a <!> b = a <$> peek <*> b
-
 

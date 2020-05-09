@@ -57,7 +57,8 @@ satisfy f = do
                 throwError $ ErrorWithPos ("Unexcepted char " ++ show x) pos
 
 -- get current position
-peek = (\(PString (s, p)) -> p) <$> (Parser $ lift get)
+peek   = (\(PString (_, Pos p)) -> p) <$> (Parser $ lift get)
+peekSC = (\(PString (s, _    )) -> s) <$> (Parser $ lift get)
 
 parse :: Parser a -> String -> Either ParseError a
 parse p s = case (runState . runExceptT . runParser) p (PString (s, Pos (1, 1))) of
@@ -70,10 +71,10 @@ showErr e inp = case e of
     DefaultError s              -> s
     EofError       (Pos (a, b)) -> show a ++ ":" ++ show b ++ ": \x1b[91mparse error\x1b[0m: End of Input"
     ErrorWithPos s (Pos (a, b)) -> let n = length $ show a in
-        show a ++ ":" ++ show b ++ ": \x1b[91mparse error\x1b[0m:\n" ++ "\n" ++
+        show a ++ ":" ++ show b ++ ": \x1b[91mparse error\x1b[0m:\n" ++
         replicate n ' ' ++ " \x1b[94m|\n" ++
         show a ++ " | \x1b[0m" ++ lines inp !! (a - 1) ++ "\n" ++
-        replicate n ' ' ++ " \x1b[94m|\x1b[91m " ++ replicate (b - 1) ' ' ++ "^\x1b[0m\n"
+        replicate n ' ' ++ " \x1b[94m|\x1b[91m " ++ replicate (b - 1) ' ' ++ "^\x1b[0m"
 
 
 catchPErr :: Parser a -> String -> Parser a
