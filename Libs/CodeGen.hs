@@ -13,7 +13,7 @@ runCodeGen = cProgram
 
 
 cProgram :: Ast -> [String]
-cProgram (Program _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fds)
+cProgram (Program _ _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fds)
     where
         bind (a, b) c = bind' a (c b)
         bind' a (b, c) = [a ++ c, b]
@@ -21,7 +21,7 @@ cProgram (Program _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fds)
 
 cGlobalVarDef :: [Ast] -> ([String], RegTable)
 cGlobalVarDef defs = foldr step ([], empty_rgt) defs where
-    step (VarDef t xs) (l, rgt) =
+    step (VarDef t _ xs) (l, rgt) =
         let
             rst = case t of
                 TInt  -> foldr (step' 4) ([], empty_rgt) xs
@@ -29,20 +29,20 @@ cGlobalVarDef defs = foldr step ([], empty_rgt) defs where
         in
             (fst rst ++ l, Map.union (snd rst) rgt)
 
-    step' s (Identifier i) (l, rgt) =
+    step' s (Identifier _ i) (l, rgt) =
         (("\t.comm\t" ++ i ++ "," ++ show s) : l, Map.insert i (i ++ "(%rip)" , s) rgt)
-    step' s (Array (Identifier i) (Number n)) (l, rgt) =
+    step' s (Array _ (Identifier _ i) (Number _ n)) (l, rgt) =
         (("\t.comm\t" ++ i ++ "," ++ show (n * s)) : l, Map.insert i (i ++ "(%rip)", s) rgt)
 
 --                                 code      all_func_name
 cFuncDefs :: [Ast] -> RegTable -> ([String], [String])
 cFuncDefs fds rgt = (concat $ foldr (\fd zero -> cAFuncDef fd rgt : zero) [] fds, foldr collect_fn [] fds)
     where
-        collect_fn (FuncDef _ (Identifier fn) _ _) z = ("\t.globl\t" ++ fn) : z
+        collect_fn (FuncDef _ _ (Identifier _ fn) _ _) z = ("\t.globl\t" ++ fn) : z
 
 
 cAFuncDef :: Ast -> RegTable -> [String]
-cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
+cAFuncDef (FuncDef ft _ (Identifier _ fn) pl fb) rgt =
     [fn ++ ":", "\tpushq\t%rbp", "\tmovq\t%rsp, %rbp"]
         ++ bind (cParams pl) (cComdStmt fb)
         ++ ["\tret"]
@@ -57,7 +57,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
         cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
 
         get_param_reg pls =
-            let l2 = unzip $ map (\(t, Identifier i) -> ((\t -> case t of TInt -> 4; TChar -> 1) t, i)) pls
+            let l2 = unzip $ map (\(t, Identifier _ i) -> ((\t -> case t of TInt -> 4; TChar -> 1) t, i)) pls
                 regs = map (\a -> show a ++ "(%rbp)") $ [-4,-8..(-24)] ++ [16,24..]
             in zip (snd l2) $ zip regs $ fst l2 -- (name, (reg, size))
 
@@ -69,7 +69,7 @@ cAFuncDef (FuncDef ft (Identifier fn) pl fb) rgt =
 
 
 cComdStmt :: Ast -> RegTable -> ([String], Int) -- Int: stack size needed
-cComdStmt (ComdStmt [] vd sl) rgt =
+cComdStmt (ComdStmt _ [] vd sl) rgt =
     let (var, siz) = cLocalVar vd rgt in (fst $ cStmtList sl var, siz)
 
 
@@ -90,13 +90,13 @@ cLocalVar vds rgt =
     in
         (Map.union (Map.union (snd int_rgt) (snd chr_rgt)) rgt, (abs $ fst chr_rgt - 15) `div` 16 * 16)
     where
-        is_int (VarDef TInt _) = True
-        is_int (VarDef TChar _) = False
+        is_int (VarDef TInt _ _)  = True
+        is_int (VarDef TChar _ _) = False
 
-        trans (Array (Identifier i) (Number n)) = (i, n)
-        trans (Identifier i) = (i, 1)
+        trans (Array _ (Identifier _ i) (Number _ n)) = (i, n)
+        trans (Identifier _ i) = (i, 1)
 
-        take_name = \(VarDef _ n) -> n
+        take_name = \(VarDef _ _ n) -> n
 
         for_siz siz ((name, len):xs) oft res = for_siz siz xs (oft - siz - len * siz)
             $ (name, ((show $ oft - len * siz) ++ "(%rbp)", siz)) : res
@@ -104,7 +104,7 @@ cLocalVar vds rgt =
 
 
 cStmtList :: Ast -> RegTable -> ([String], RegTable)
-cStmtList (StmtList sl) rgt = cStmts sl rgt where
+cStmtList (StmtList _ sl) rgt = cStmts sl rgt where
     cStmts (sl:sls) rgt = bind (cAStmt sl rgt) (cStmts sls)
     cStmts [] rgt = ([], rgt)
 
@@ -113,10 +113,10 @@ cStmtList (StmtList sl) rgt = cStmts sl rgt where
 
 
 cAStmt :: Ast -> RegTable -> ([String], RegTable)
-cAStmt sl@(StmtList _) rgt = cStmtList sl rgt
+cAStmt sl@(StmtList _ _) rgt = cStmtList sl rgt
 cAStmt Empty rgt = ([], rgt) -- or return nop
 
-cAStmt (IfStmt c s Empty) rgt =
+cAStmt (IfStmt _ c s Empty) rgt =
     let
         l_end = get_label rgt
         (stmt_head, reg) = cExpr c rgt
@@ -125,7 +125,7 @@ cAStmt (IfStmt c s Empty) rgt =
     in
         (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ [l_end ++ ":"], snd then_stmt)
 
-cAStmt (IfStmt c s es) rgt =
+cAStmt (IfStmt _ c s es) rgt =
     let
         l_else = get_label rgt
         l_end = get_label $ snd else_stmt
@@ -139,7 +139,7 @@ cAStmt (IfStmt c s es) rgt =
         (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ ["\tjmp\t" ++ l_end]
          ++ [l_else ++ ":"] ++ fst else_stmt ++ [l_end ++ ":"], update_label $ snd else_stmt)
 
-cAStmt (DoStmt lb cnd) rgt =
+cAStmt (DoStmt _ lb cnd) rgt =
     let
         l_beg = get_label rgt
 
@@ -155,8 +155,8 @@ cAStmt (DoStmt lb cnd) rgt =
 
         (cmpr, reg) = cExpr cnd rgt''
         cond_inst = case cnd of
-            Number n | n == 0 -> []
-                     | n /= 0 -> ["\tjmp\t" ++ l_beg]
+            Number _ n | n == 0 -> []
+                       | n /= 0 -> ["\tjmp\t" ++ l_beg]
             _ -> cmpr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_beg]
     in
         ([l_beg ++ ":"] ++ fst body ++
@@ -164,7 +164,7 @@ cAStmt (DoStmt lb cnd) rgt =
          [l_break ++ ":"]
         , snd body)
 
-cAStmt (ForStmt init cond step lpbd) rgt =
+cAStmt (ForStmt _ init cond step lpbd) rgt =
     let
         l_body = get_label rgt
 
@@ -186,8 +186,8 @@ cAStmt (ForStmt init cond step lpbd) rgt =
 
         cond_inst = case cond of
             Empty -> ["\tjmp\t" ++ l_body]
-            Number n | n == 0 -> []
-                     | n /= 0 -> ["\tjmp\t" ++ l_body]
+            Number _ n | n == 0 -> []
+                       | n /= 0 -> ["\tjmp\t" ++ l_body]
             _ -> cond_expr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body]
     in
         (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
@@ -197,33 +197,31 @@ cAStmt (ForStmt init cond step lpbd) rgt =
          [l_break ++ ":"]
         , snd loop_body)
 
-cAStmt (Break) rgt = case Map.lookup ".break" rgt of
-    Nothing -> error $ "break-stmt not in a loop-stmt"
+cAStmt (Break _) rgt = case Map.lookup ".break" rgt of
     Just (a, _) -> (["\tjmp\t" ++ a], rgt)
 
-cAStmt (Continue) rgt = case Map.lookup ".continue" rgt of
-    Nothing -> error $ "continue-stmt not in a loop-stmt"
+cAStmt (Continue _) rgt = case Map.lookup ".continue" rgt of
     Just (a, _) -> (["\tjmp\t" ++ a], rgt)
 
-cAStmt (Assign (Identifier i) e) rgt =
+cAStmt (Assign _ (Identifier _ i) e) rgt =
     let
         (expr, reg) = cExpr e rgt
         (regl, siz) = (\(Just x)->x) $ Map.lookup i rgt
         inst = case (e, siz) of
-            (Number n, 1) -> "\tmovb\t$" ++ show n ++ ", " ++ regl
-            (Number n, 4) -> "\tmovl\t$" ++ show n ++ ", " ++ regl
-            (_       , 1) -> "\tmovb\t" ++ get_low_reg reg ++ ", " ++ regl
-            (_       , 4) -> "\tmovl\t" ++ reg ++ ", " ++ regl
+            (Number _ n, 1) -> "\tmovb\t$" ++ show n ++ ", " ++ regl
+            (Number _ n, 4) -> "\tmovl\t$" ++ show n ++ ", " ++ regl
+            (_         , 1) -> "\tmovb\t" ++ get_low_reg reg ++ ", " ++ regl
+            (_         , 4) -> "\tmovl\t" ++ reg ++ ", " ++ regl
     in
         (expr ++ [inst], rgt)
 
-cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
+cAStmt (Assign _ (Array _ (Identifier _ i) ei) ev) rgt =
     let
         (expri, regi) = cExpr ei rgt
         (exprv, regv) = cExpr ev rgt
 
         ins_cltq = case ei of
-            Number n -> ["\tmovl\t$" ++ show n ++ ", %eax", "\tcltq"]
+            Number _ n -> ["\tmovl\t$" ++ show n ++ ", %eax", "\tcltq"]
             _ -> if regi == "%eax"
                  then ["\tcltq"]
                  else expri ++ ["\tmovl\t" ++ regi ++ ", %eax", "\tcltq"]
@@ -242,7 +240,7 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
     in
         (if "(%rip)" `isSuffixOf` nam
         then case ev of
-            Number n ->
+            Number _ n ->
                 ins_cltq ++                                      -- calculate index and save it in %eax
                 ["\tleaq\t0(,%rax," ++ show siz ++ "), %rdx"] ++ -- %rdx is the offset of array now
                 ["\tleaq\t" ++ nam ++ ", %rax"] ++
@@ -255,7 +253,7 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
                 ["\tleaq\t" ++ nam ++ ", %rax"] ++
                 [inst "%ecx" "(%rdx,%rax)"]
         else case ev of
-            Number n ->
+            Number _ n ->
                 ins_cltq ++           -- calculate index and save it in %eax
                 [instn n $ init nam ++ ",%rax," ++ show siz ++ ")"]
             _ ->
@@ -265,17 +263,17 @@ cAStmt (Assign (Array (Identifier i) ei) ev) rgt =
                 [inst "%edx" $ init nam ++ ",%rax," ++ show siz ++ ")"]
         , rgt)
 
-cAStmt (Ret e) rgt =
+cAStmt (Ret _ e) rgt =
     let
         (expr, reg) = cExpr e rgt
         mov_inst = case e of
-            Empty -> [clr_reg "%eax"]
-            Number n -> ["\tmovl\t$" ++ show n ++ ", %eax"]
-            _ -> expr ++ (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"])
+            Empty      -> [clr_reg "%eax"]
+            Number _ n -> ["\tmovl\t$" ++ show n ++ ", %eax"]
+            _          -> expr ++ (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"])
     in
         (mov_inst ++ ["\tjmp\t" ++ get_end_label rgt], rgt)
 
-cAStmt (FuncCall (Identifier fn) pl) rgt =
+cAStmt (FuncCall _ (Identifier _ fn) pl) rgt =
     let
         (params_h, params_t) = splitAt 6 pl
         reg_l = zip (tail $ map (!!1) registers) params_h
@@ -287,21 +285,20 @@ cAStmt (FuncCall (Identifier fn) pl) rgt =
         , rgt)
     where
         step_t z x = case x of
-            Empty -> z
-            Number n -> ["\tpushq\t$" ++ show n] ++ z
-            e -> let (expr, reg) = cExpr e rgt in
+            Empty      -> z
+            Number _ n -> ["\tpushq\t$" ++ show n] ++ z
+            e          -> let (expr, reg) = cExpr e rgt in
                 expr ++ ["\tpushq\t" ++ get_high_reg reg] ++ z
         step_h (r, e) z = case e of
             Empty -> z
-            _ -> ["\tpopq\t" ++ get_high_reg r] ++ z
+            _     -> ["\tpopq\t" ++ get_high_reg r] ++ z
 
-cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
+cAStmt (Rd _ xs) rgt = (foldr step [] xs, rgt)
     where
-        step (Identifier x) zero =
+        step (Identifier _ x) zero =
             let (reg, format_str) = case Map.lookup x rgt of
                     Just (r, 1) -> (r, "$25381") -- "%c\0"
                     Just (r, 4) -> (r, "$25637") -- "%d\0"
-                    _ -> error $ "an error occurred on rd-stmt"
             in ["\tpushq\t$0",
                 "\tpushq\t" ++ format_str,
                 "\tleaq\t" ++ reg ++ ", %rdx",
@@ -312,11 +309,11 @@ cAStmt (Rd xs) rgt = (foldr step [] xs, rgt)
                 "\tcall\t__isoc99_scanf@PLT",
                 "\taddq\t$16, %rsp"] ++ zero
 
-cAStmt (Wt (Str s) es) rgt =
+cAStmt (Wt _ (Str _ s) es) rgt =
     let
         format_str = convert_str $ foldr (\x z -> replace (fst x) (snd x) z) s spcChr
 
-        (func_call, _) = cAStmt (FuncCall (Identifier "printf@PLT") (Empty : es)) rgt
+        (func_call, _) = cAStmt (FuncCall (0,0) (Identifier (0,0) "printf@PLT") (Empty : es)) rgt
         (a, b) =
             if "%rsp" `isInfixOf` (last func_call)
             then (fst $ splitAt (length func_call - 3) func_call, [(last . init) func_call, last func_call])
@@ -346,14 +343,14 @@ cAStmt (Wt (Str s) es) rgt =
 
 --                             res     reg where res is
 cExpr :: Ast -> RegTable -> ([String], String)
-cExpr (BinNode op l r) rgt =
+cExpr (BinNode op _ l r) rgt =
     let
         (exprl, regl) = case r of
-            Number a -> ([], "$" ++ show a)
+            Number _ a -> ([], "$" ++ show a)
             _ -> cExpr r rgt
         (exprr, regr) = cExpr l rgt
-        regr' = get_free_reg [regr, regl]
-        regl' = get_free_reg [regr, regr']
+        regr'  = get_free_reg [regr, regl]
+        regl'  = get_free_reg [regr, regr']
         hregl  = get_high_reg regl
         hregl' = get_high_reg regl'
 
@@ -386,18 +383,18 @@ cExpr (BinNode op l r) rgt =
                    conn_inst "movl" r "%eax" ++ ["\tcltd", "\tidivl\t" ++ l]
         reg_ret r = case op of
             Div -> "%eax"
-            _ -> r
+            _   -> r
         conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
         set_reg i reg = let low = get_low_reg reg in
             ["\tset" ++ i ++ "\t" ++ low] ++ conn_inst "movzbl" low reg
 
-cExpr (UnaryNode Not e) rgt =
+cExpr (UnaryNode Not _ e) rgt =
     let
         (expr, reg) = cExpr e rgt
     in
         (["\tcmpl\t$0, " ++ reg, "\tsete\t%al", "\tmovzbl\t%al, %eax"], "%eax")
 
-cExpr (UnaryNode Neg e) rgt =
+cExpr (UnaryNode Neg _ e) rgt =
     let
         (expr, reg) = cExpr e rgt
     in
@@ -405,14 +402,14 @@ cExpr (UnaryNode Neg e) rgt =
         then (["\tmovl\t" ++ reg ++ ", %eax", "\tnegl\t%eax"], "%eax")
         else (["\tnegl\t" ++ reg], reg)
 
-cExpr (Number n) rgt = (["\tmovl\t$" ++ show n ++ ", %eax"], "%eax")
+cExpr (Number _ n) rgt = (["\tmovl\t$" ++ show n ++ ", %eax"], "%eax")
 
-cExpr (Array (Identifier i) e) rgt =
+cExpr (Array _ (Identifier _ i) e) rgt =
     let
         (expr, reg) = cExpr e rgt
 
         mov_inst = case e of
-            Number n -> ["\tmovl\t$" ++ show n ++ ", %eax", "\tcltq"]
+            Number _ n -> ["\tmovl\t$" ++ show n ++ ", %eax", "\tcltq"]
             _ -> expr ++ (if reg == "%eax" then [] else ["\tmovl\t" ++ reg ++ ", %eax"]) ++ ["\tcltq"]
 
         regf = get_free_reg ["%eax", "%edx", reg]
@@ -434,16 +431,16 @@ cExpr (Array (Identifier i) e) rgt =
         else
             (mov_inst ++ move_to_free (init r ++ ",%rax," ++ show s ++ ")"), regf)
 
-cExpr (Identifier i) rgt = case Map.lookup i rgt of
+cExpr (Identifier _ i) rgt = case Map.lookup i rgt of
     Just (a, 4) -> ([], a)
     Just (a, 1) -> (["\tmovzbl\t" ++ a ++ ", %eax", "\tmovsbl\t%al, %eax"], "%eax")
 
-cExpr fc@(FuncCall _ _) rgt = (fst $ cAStmt fc rgt, "%eax")
+cExpr fc@(FuncCall _ _ _) rgt = (fst $ cAStmt fc rgt, "%eax")
 
 -- Note: for-stmt, ret-stmt and write-stmt have empty-expr
 --       return %eax just for ret-stmt
 cExpr Empty _ = ([], "%eax")
 
-cExpr (Ch c) rgt = cExpr (Number (ord c)) rgt
+cExpr (Ch _ c) rgt = cExpr (Number (0,0) (ord c)) rgt
 
 

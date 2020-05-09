@@ -61,7 +61,7 @@ semaFunc (f:fs) sc st = semaAFun f st >>> semaFunc fs sc where
         Just (x, st) -> case stepo st of
             Just (xs, st') -> Just (x:xs, st')
             _              -> Nothing
-        _            -> Nothing
+        _ -> Nothing
 
     semaAFun :: Ast -> SymbolTable -> Maybe (Ast, SymbolTable)
     semaAFun (FuncDef ft pf (Identifier p fn) pl fb) st =
@@ -76,7 +76,7 @@ semaFunc (f:fs) sc st = semaAFun f st >>> semaFunc fs sc where
                                 Just ast -> Just (FuncDef ft pf (Identifier p fn) pl ast, Map.insert fn fs st)
                                 _        -> Nothing
                 Nothing  -> Nothing
-            _       -> putSemaError sc p "Confilcting definations for function" fn
+            _ -> putSemaError sc p "Confilcting definations for function" fn
 
     semaParamList :: [(Type, Ast)] -> SymbolTable -> Maybe SymbolTable
     semaParamList ((t, Identifier p i):pls) st = step >>= semaParamList pls where
@@ -147,15 +147,15 @@ semaAStmt (Rd p rd) sc st = toReadStmt $ for_rest rd where
     for_rest [] = Just []
 
     check p x = case Map.lookup x st of
-        Just (SVariable _) -> Just $ Identifier p x
-        Nothing            -> putSemaError sc p "Variable not in scope:" x
+        Just (SVariable _)    -> Just $ Identifier p x
+        Nothing               -> putSemaError sc p "Variable not in scope:" x
         Just (SArray SInt _)  -> putSemaError sc p
             ("Couldn't match excepted type " ++ srd_str "int" ++ "with actual type " ++ srd_str "int[]" ++ ":") x
         Just (SArray SChar _) -> putSemaError sc p
             ("Couldn't match excepted type " ++ srd_str "char" ++ "with actual type " ++ srd_str "char[]" ++ ":") x
-        Just (SConst _ _) -> putSemaError sc p "Couldn't read into a const:" x
-        Just (SFunction _ _) -> putSemaError sc p "Couldn't read into a function:" x
-        _                  -> putSemaError sc p "Type error for" x
+        Just (SConst _ _)     -> putSemaError sc p "Couldn't read into a const:" x
+        Just (SFunction _ _)  -> putSemaError sc p "Couldn't read into a function:" x
+        _                     -> putSemaError sc p "Type error for" x
 
     toReadStmt Nothing = Nothing
     toReadStmt (Just a) = Just $ Rd p a
@@ -164,8 +164,8 @@ semaAStmt (Rd p rd) sc st = toReadStmt $ for_rest rd where
 semaAStmt (Wt p s e) sc st = bind (semaFormatStr s) $ foldr step (Just []) e where
     step e z = case z of
         Nothing -> Nothing
-        Just x -> case semaExpr e sc st of
-            Just a -> Just $ a : x
+        Just x  -> case semaExpr e sc st of
+            Just a  -> Just $ a : x
             Nothing -> Nothing
     bind (Just a) (Just b) = Just $ Wt p a b
     bind _ _ = Nothing
@@ -217,12 +217,12 @@ semaAStmt (Assign p l r) sc st = case l of
 
 semaAStmt bk@(Break p) sc st = case Map.lookup ".loop" st of
     Just _ -> Just bk
-    _ -> putSemaError sc p "Statement not within loop:" "break"
+    _      -> putSemaError sc p "Statement not within loop:" "break"
 
 
 semaAStmt ct@(Continue p) sc st = case Map.lookup ".loop" st of
     Just _ -> Just ct
-    _ -> putSemaError sc p "Statement not within loop:" "continue"
+    _      -> putSemaError sc p "Statement not within loop:" "continue"
 
 
 -- check format string is boring, i don't want to do it...
@@ -258,19 +258,19 @@ semaExpr (Array pa (Identifier pi n) i) sc st = case Map.lookup n st of
 
 
 semaExpr ident@(Identifier p i) sc st = case Map.lookup i st of
-    Just x@(SVariable _) -> Just ident
-    Just x@(SConst _  _) -> Just ident
-    Just x@(SArray _  _) -> putSemaError sc p
+    Just x@(SVariable _)   -> Just ident
+    Just x@(SConst _  _)   -> Just ident
+    Just x@(SArray _  _)   -> putSemaError sc p
         ("Couldn't match excepted type " ++ srd_str "int/char" ++ "with actual type " ++ srd_str "array" ++ ":") i
     Just x@(SFunction _ _) -> putSemaError sc p
         ("Couldn't match excepted type " ++ srd_str "int/char" ++ "with actual type " ++ srd_str "function" ++ ":") i
-    Nothing -> putSemaError sc p "Variable not in scope:" i
+    Nothing                -> putSemaError sc p "Variable not in scope:" i
 
 
 semaExpr fc@(FuncCall pf (Identifier p fn) pl) sc st = case Map.lookup fn st of
     Just (SFunction SVoid  _) -> putSemaError sc pf "Call a void function in expression:" fn
     Just (SFunction _ _)      -> semaAStmt fc sc st
-    _ -> putSemaError sc p "Function not in scope:" fn
+    _                         -> putSemaError sc p "Function not in scope:" fn
 
 semaExpr Empty _ _ = Just Empty
 
