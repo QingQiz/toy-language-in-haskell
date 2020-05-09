@@ -25,13 +25,15 @@ semaConst (ConstDef t _ dfs:cs) sc st =
         -- for int
         semaConstDef TInt ((Identifier p i, Number _ n):dfs) st =
             case Map.lookup i st of
-                Nothing -> semaConstDef TInt dfs $ Map.insert i (SConst SInt n) st
-                _       -> putSemaError sc p "Confilcting definations for const" i
+                Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" i
+                Nothing             -> semaConstDef TInt dfs $ Map.insert i (SConst SInt n) st
+                _                   -> putSemaError sc p "Confilcting definations for const" i
         -- for char -> convert to int
         semaConstDef TChar ((Identifier p i, Ch _ c):dfs) st =
             case Map.lookup i st of
-                Nothing -> semaConstDef TChar dfs $ Map.insert i (SConst SChar (ord c)) st
-                _       -> putSemaError sc p "Confilcting definations for const" i
+                Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" i
+                Nothing             -> semaConstDef TChar dfs $ Map.insert i (SConst SChar (ord c)) st
+                _                   -> putSemaError sc p "Confilcting definations for const" i
         semaConstDef _ [] st = Just st
 
 
@@ -41,12 +43,14 @@ semaVar (VarDef t _ dfs:vs) sc st = semaVarDef t dfs st >>= semaVar vs sc where
     semaVarDef :: Type -> [Ast] -> SymbolTable -> Maybe SymbolTable
     semaVarDef t (d:ds) st = case d of
         Identifier p i -> case Map.lookup i st of
-            Nothing -> semaVarDef t ds $ Map.insert i (pSVar t) st
-            _       -> putSemaError sc p "Confilcting definations for variable" i
+            Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" i
+            Nothing             -> semaVarDef t ds $ Map.insert i (pSVar t) st
+            _                   -> putSemaError sc p "Confilcting definations for variable" i
         Array _ (Identifier p1 i) (Number p2 n) -> case Map.lookup i st of
-            Nothing | n > 0 -> semaVarDef t ds $ Map.insert i (pSArr t n) st
+            Just SReserveSymbol -> putSemaError sc p1 "Use a reserve symbol:" i
+            Nothing | n > 0     -> semaVarDef t ds $ Map.insert i (pSArr t n) st
                     | otherwise -> putSemaError sc p2 "Array size must greater than" "0"
-            _       -> putSemaError sc p1 "Confilcting definations for array" i
+            _                   -> putSemaError sc p1 "Confilcting definations for array" i
     semaVarDef _ [] st = Just st
 
     pSVar t = SVariable $ semaType t
@@ -76,13 +80,15 @@ semaFunc (f:fs) sc st = semaAFun f st >>> semaFunc fs sc where
                                 Just ast -> Just (FuncDef ft pf (Identifier p fn) pl ast, Map.insert fn fs st)
                                 _        -> Nothing
                 Nothing  -> Nothing
-            _ -> putSemaError sc p "Confilcting definations for function" fn
+            Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" fn
+            _                   -> putSemaError sc p "Confilcting definations for function" fn
 
     semaParamList :: [(Type, Ast)] -> SymbolTable -> Maybe SymbolTable
     semaParamList ((t, Identifier p i):pls) st = step >>= semaParamList pls where
         step = case Map.lookup i st of
-            Nothing -> Just $ Map.insert i (SVariable $ semaType t) st
-            _       -> putSemaError sc p "Confilcting definations for parameter" i
+            Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" i
+            Nothing             -> Just $ Map.insert i (SVariable $ semaType t) st
+            _                   -> putSemaError sc p "Confilcting definations for parameter" i
     semaParamList [] st = Just st
 
     pSFun :: FunType -> [(Type, Ast)] -> Symbol
@@ -155,6 +161,7 @@ semaAStmt (Rd p rd) sc st = toReadStmt $ for_rest rd where
             ("Couldn't match excepted type " ++ srd_str "char" ++ "with actual type " ++ srd_str "char[]" ++ ":") x
         Just (SConst _ _)     -> putSemaError sc p "Couldn't read into a const:" x
         Just (SFunction _ _)  -> putSemaError sc p "Couldn't read into a function:" x
+        Just SReserveSymbol   -> putSemaError sc p "Use a reserve symbol:" x
         _                     -> putSemaError sc p "Type error for" x
 
     toReadStmt Nothing = Nothing
@@ -184,7 +191,11 @@ semaAStmt (Ret p e) sc st = case semaExpr e sc st of
 
 semaAStmt (FuncCall p (Identifier pi fn) pl) sc st = case Map.lookup fn st of
     Just (SFunction _ pld) -> toFuncCall $ foreach pld pl check
-    _ -> putSemaError sc p "Function not in scope:" fn
+    Just (SVariable _)     -> putSemaError sc p "Call a variable:" fn
+    Just (SArray _ _)      -> putSemaError sc p "Call a array:" fn
+    Just (SConst _ _)      -> putSemaError sc p "Call a const:" fn
+    Just SReserveSymbol    -> putSemaError sc p "Call a reserve symbol:" fn
+    _                      -> putSemaError sc p "Function not in scope:" fn
     where
         foreach (d:ds) (x:xs) f = f d x </> foreach ds xs f
         foreach [] [] _ = Just []
@@ -209,15 +220,16 @@ semaAStmt (Assign p l r) sc st = case l of
             Nothing -> Nothing
         Nothing -> Nothing
     (Identifier pi i) -> case Map.lookup i st of
-        Just (SVariable _) -> case semaExpr r sc st of
+        Just (SVariable _)  -> case semaExpr r sc st of
             Just a  -> Just $ Assign p l a
             Nothing -> Nothing
-        Nothing -> putSemaError sc pi "Variable not in scope:" i
+        Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" i
+        Nothing             -> putSemaError sc pi "Variable not in scope:" i
 
 
 semaAStmt bk@(Break p) sc st = case Map.lookup ".loop" st of
-    Just _ -> Just bk
-    _      -> putSemaError sc p "Statement not within loop:" "break"
+    Just _   -> Just bk
+    _        -> putSemaError sc p "Statement not within loop:" "break"
 
 
 semaAStmt ct@(Continue p) sc st = case Map.lookup ".loop" st of
@@ -251,10 +263,11 @@ semaExpr c@(Ch _ _) _ _ = Just c
 
 
 semaExpr (Array pa (Identifier pi n) i) sc st = case Map.lookup n st of
-    Just (SArray _ _) -> case semaExpr i sc st of
+    Just (SArray _ _)   -> case semaExpr i sc st of
         Just a  -> Just $ Array pa (Identifier pi n) a
         Nothing -> Nothing
-    _ -> putSemaError sc pi "Variable not in scope:" n
+    Just SReserveSymbol -> putSemaError sc pi "Use a reserve symbol:" n
+    _                   -> putSemaError sc pi "Variable not in scope:" n
 
 
 semaExpr ident@(Identifier p i) sc st = case Map.lookup i st of
@@ -264,12 +277,14 @@ semaExpr ident@(Identifier p i) sc st = case Map.lookup i st of
         ("Couldn't match excepted type " ++ srd_str "int/char" ++ "with actual type " ++ srd_str "array" ++ ":") i
     Just x@(SFunction _ _) -> putSemaError sc p
         ("Couldn't match excepted type " ++ srd_str "int/char" ++ "with actual type " ++ srd_str "function" ++ ":") i
+    Just SReserveSymbol    -> putSemaError sc p "Use a reserve symbol:" i
     Nothing                -> putSemaError sc p "Variable not in scope:" i
 
 
 semaExpr fc@(FuncCall pf (Identifier p fn) pl) sc st = case Map.lookup fn st of
     Just (SFunction SVoid  _) -> putSemaError sc pf "Call a void function in expression:" fn
     Just (SFunction _ _)      -> semaAStmt fc sc st
+    Just SReserveSymbol       -> putSemaError sc p "Use a reserve symbol:" fn
     _                         -> putSemaError sc p "Function not in scope:" fn
 
 semaExpr Empty _ _ = Just Empty
