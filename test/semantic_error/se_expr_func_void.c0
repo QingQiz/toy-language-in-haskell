@@ -1,0 +1,3 @@
+void f() {}
+
+int ff() {int a; a = f();}

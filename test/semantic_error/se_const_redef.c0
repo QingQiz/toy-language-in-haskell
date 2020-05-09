@@ -1,0 +1,4 @@
+const int a = 1;
+const char a = 'a';
+
+int main() {}
