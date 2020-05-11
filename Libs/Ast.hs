@@ -38,7 +38,7 @@ data Op = Not | Neg
         | Add | Sub
         | Gt  | Ls  | GE  | LE  | Equ | Neq
         | And | Or
-        deriving (Show)
+        deriving (Show, Eq)
 
 
 data Type = TInt | TChar deriving (Show)

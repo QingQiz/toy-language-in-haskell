@@ -5,7 +5,7 @@ import Symbol
 import Grammar
 
 import Data.Char
-import Data.Map as Map hiding (foldl, foldr, map, splitAt)
+import qualified Data.Map as Map hiding (foldl, foldr, map, splitAt)
 
 
 runSema = semaProgram
@@ -14,7 +14,7 @@ semaProgram :: Ast -> Maybe Ast
 semaProgram (Program sc cst var fun) =
     semaConst cst sc empty_st >>= semaVar var sc >>= semaFunc fun sc >>= rebuild where
         rebuild :: ([Ast], SymbolTable) -> Maybe Ast
-        rebuild (asts, _) = Just $ Program sc [] var asts
+        rebuild (asts, _) = Just $ Program "" [] var asts
 
 
 semaConst :: [Ast] -> String -> SymbolTable -> Maybe SymbolTable
@@ -23,18 +23,15 @@ semaConst (ConstDef t _ dfs:cs) sc st =
     semaConstDef t dfs st >>= semaConst cs sc where
         semaConstDef :: Type -> [(Ast, Ast)] -> SymbolTable -> Maybe SymbolTable
         -- for int
-        semaConstDef TInt ((Identifier p i, Number _ n):dfs) st =
+        semaConstDef tp ((Identifier p i, val):dfs) st =
             case Map.lookup i st of
                 Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" i
-                Nothing             -> semaConstDef TInt dfs $ Map.insert i (SConst SInt n) st
-                _                   -> putSemaError sc p "Confilcting definations for const" i
-        -- for char -> convert to int
-        semaConstDef TChar ((Identifier p i, Ch _ c):dfs) st =
-            case Map.lookup i st of
-                Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" i
-                Nothing             -> semaConstDef TChar dfs $ Map.insert i (SConst SChar (ord c)) st
+                Nothing             -> semaConstDef tp dfs $ Map.insert i (pSymbol val) st
                 _                   -> putSemaError sc p "Confilcting definations for const" i
         semaConstDef _ [] st = Just st
+
+        pSymbol (Number _ n) = SConst SInt n
+        pSymbol (Ch     _ c) = SConst SInt $ ord c
 
 
 semaVar :: [Ast] -> String -> SymbolTable -> Maybe SymbolTable
@@ -98,7 +95,8 @@ semaFunc (f:fs) sc st = semaAFun f st >>> semaFunc fs sc where
 
 semaComdStmt :: Ast -> String -> SymbolTable -> Maybe Ast
 semaComdStmt (ComdStmt p cs vs sl) sc st =
-    semaConst cs sc st >>= semaVar vs sc >>= semaStmtList sl sc >>= rebuild where
+    Just empty_st >>= semaConst cs sc >>= semaVar vs sc >>= unionST >>= semaStmtList sl sc >>= rebuild where
+        unionST st' = Just $ Map.union st' st
         rebuild ast = Just $ ComdStmt p [] vs ast
 
 
@@ -248,15 +246,28 @@ semaExpr (BinNode o p l r) sc st = toExpr o (semaExpr l sc st) (semaExpr r sc st
             (Just a, Just b) -> Just $ BinNode o p a b
 
 
-semaExpr (UnaryNode op p a) sc st = case semaExpr a sc st of
-    Just x  -> Just $ UnaryNode op p x
-    Nothing -> Nothing
+semaExpr u@(UnaryNode _ _ _) sc st =
+    let
+        (ops, exp) = get_op_chain u
+        rops = reduce ops
+    in
+        case semaExpr exp sc st of
+            Just x  -> Just $ rebuild rops x (all (/=Not) rops && any (==Not) ops)
+            Nothing -> Nothing
+    where
+        p = (0, 0)
+        get_op_chain u = get_op_chain' u []
+        get_op_chain' (UnaryNode op _ e) opl = get_op_chain' e (op:opl)
+        get_op_chain' e opl = (opl, e)
 
+        reduce ops = foldl step [] ops where
+            step (Not:xs) Neg = Not:Neg:xs
+            step (Neg:xs) Not = Not:xs
+            step (_  :xs) _   = xs
+            step []       x   = [x]
 
-semaExpr n@(Number _ _) _ _ = Just n
-
-
-semaExpr c@(Ch _ _) _ _ = Just c
+        rebuild ops exp b = foldl step (if b then BinNode Neq p exp (Number p 0) else exp) ops where
+            step z x = UnaryNode x p z
 
 
 semaExpr (Array pa (Identifier pi n) i) sc st = case Map.lookup n st of
@@ -268,7 +279,7 @@ semaExpr (Array pa (Identifier pi n) i) sc st = case Map.lookup n st of
 
 semaExpr ident@(Identifier p i) sc st = case Map.lookup i st of
     Just x@(SVariable _)   -> Just ident
-    Just x@(SConst _  _)   -> Just ident
+    Just x@(SConst _  n)   -> Just $ Number (0, 0) n
     Just x@(SArray _  _)   -> putSemaError sc p
         ("Couldn't match excepted type " ++ srd_str "int/char" ++ " with actual type " ++ srd_str "array" ++ ":") i
     Just x@(SFunction _ _) -> putSemaError sc p
@@ -281,6 +292,9 @@ semaExpr fc@(FuncCall pf (Identifier p fn) pl) sc st = case Map.lookup fn st of
     Just (SFunction _ _)      -> semaAStmt fc sc st
     _                         -> putSemaError sc p "Function not in scope:" fn
 
+
+semaExpr n@(Number _ _) _ _ = Just n
+semaExpr (Ch _ c) _ _ = Just $ Number (0, 0) (ord c)
 semaExpr Empty _ _ = Just Empty
 
 
