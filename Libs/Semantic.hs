@@ -3,6 +3,7 @@ module Semantic where
 import Ast
 import Symbol
 import Grammar
+import Simplify
 
 import Data.Char
 import qualified Data.Map as Map hiding (foldl, foldr, map, splitAt)
@@ -246,57 +247,10 @@ semaExpr (BinNode o p l r) sc st = toExpr o (semaExpr l sc st) (semaExpr r sc st
             (Just a, Just b) -> Just $ BinNode o p a b
 
 
-semaExpr u@(UnaryNode _ _ _) sc st =
-    let
-        (ops, exp) = get_op_chain u
-        rops = reduce ops
-    in
-        case semaExpr exp sc st of
-            Just x  -> Just $ rebuild rops x (all (/=Not) rops && any (==Not) ops)
-            Nothing -> Nothing
-    where
-        p = (0, 0)
-        -- -!-!a -> ([Neg,Not,Neg,Not],a)
-        get_op_chain u = get_op_chain' u [] where
-            get_op_chain' (UnaryNode op _ e) opl = get_op_chain' e (op:opl)
-            get_op_chain' e opl = (reverse opl, e)
-
-        reduce ops = until_no_change ops $ foldr step [] where
-            until_no_change x f = until_no_change' f (f x) x
-            until_no_change' f x x' = if x == x' then x else until_no_change' f (f x) x
-            step Neg (Not:xs) = Neg:Not:xs -- -!a -> -!a
-            step Not (Neg:xs) = Not:xs     -- !-a ->  !a
-            step _   (_  :xs) = xs         -- --a ->   a, !!a ->  a
-            step x   []       = [x]        --  -a ->  -a,  !a -> !a
-
-        to_bool_expr e = case e of
-            Number _ n -> Number p $ fromEnum (n/=0)
-            BinNode Sub _ l r -> BinNode Neq p l r
-            BinNode Mul _ (Number _ n) r -> if n == 0 then Number p 0 else BinNode Neq p r (Number p 0)
-            BinNode Mul _ l (Number _ n) -> if n == 0 then Number p 0 else BinNode Neq p l (Number p 0)
-            _ -> BinNode Neq p e (Number p 0)
-
-        rebuild ops exp b = foldl step id ops zero where
-            zero = if b then to_bool_expr exp else exp
-            step z x = \inp -> z $ case x of -- try to merge op into bin-expr
-                Not -> case inp of
-                    Number _ n -> Number p $ fromEnum (n==0)
-                    BinNode op _ l r
-                        | op `elem` [Neq, Equ, Gt, Ls, GE, LE] ->
-                            let op' = case op of {
-                                    Neq -> Equ; Equ -> Neq; Gt -> LE; Ls -> GE; GE -> Ls; LE -> Gt; _ -> op
-                                } -- not (a op b) = a (not op) b
-                            in BinNode op' p l r
-                        | op `elem` [And, Or] -> let op' = if op == And then Or else And in
-                            case (l, r) of
-                                (UnaryNode Not _ l', _) -> BinNode op' p l' (UnaryNode Not p r)
-                                (l, UnaryNode Not _ r') -> BinNode op' p (UnaryNode Not p l) r'
-                        | otherwise ->step z x $ to_bool_expr inp
-                    _ -> UnaryNode Not p inp
-                Neg -> case inp of
-                    Number _ n -> Number p $ negate n
-                    BinNode Sub _ l r -> BinNode Sub p r l
-                    _ -> UnaryNode Neg p inp
+semaExpr (UnaryNode o _ e) sc st =
+    case semaExpr e sc st of
+        Just x  -> Just $ simplify $ pUnary o x
+        Nothing -> Nothing
 
 
 semaExpr (Array pa (Identifier pi n) i) sc st = case Map.lookup n st of

@@ -30,7 +30,7 @@ data Ast = Empty
          | Ret        Pos Ast       -- return expr
          | Rd         Pos [Ast]     -- read [id]
          | Wt         Pos Ast [Ast] -- write fmt-str [expr]
-         deriving (Show)
+         deriving (Show, Eq)
 
 
 data Op = Not | Neg
@@ -41,8 +41,39 @@ data Op = Not | Neg
         deriving (Show, Eq)
 
 
-data Type = TInt | TChar deriving (Show)
+data Type = TInt | TChar deriving (Show, Eq)
 
 
-data FunType = FInt | FChar | FVoid deriving (Show)
+data FunType = FInt | FChar | FVoid deriving (Show, Eq)
+
+pNum      = Number (0,0)
+pCh       = Ch (0,0)
+pStr      = Str (0,0)
+pId       = Identifier (0,0)
+pArr      = Array (0,0)
+pIf       = IfStmt (0,0)
+pStmtList = StmtList (0,0)
+pFor      = ForStmt (0,0)
+pDo       = DoStmt (0,0)
+pAssign   = Assign (0,0)
+pBreak    = Break (0,0)
+pContinue = Continue (0,0)
+pComd     = ComdStmt (0,0)
+pProgram  = Program
+pConst    = \t x -> ConstDef t (0,0) x
+pVar      = \t x -> VarDef t (0, 0) x
+pFunc     = \t a b c -> FuncDef t (0,0) a b c
+pFC       = FuncCall (0,0)
+pRet      = Ret (0,0)
+pRd       = Rd (0,0)
+pWt       = Wt (0,0)
+
+pBin      = \op a b -> BinNode op (0,0) a b
+pAdd      = pBin Add
+pSub      = pBin Sub
+pMul      = pBin Mul
+
+pUnary    = \op a -> UnaryNode op (0,0) a
+pNot      = pUnary Not
+pNeg      = pUnary Neg
 
