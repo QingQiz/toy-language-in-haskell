@@ -81,6 +81,10 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o 
 ## TODO LIST
 
 - [ ] optimization
-  - [x] reduce const expr
-  - [ ] ...
+  - [x] replace const-var with its value
+  - [ ] simplify expressions
+    - [x] unary operation (Neg, Not)
+    - [ ] binary operation
+  - [ ] peephole optimization on x86-asm
+  - [ ] realloca register
 
