@@ -5,6 +5,11 @@ import Parser
 import Grammar
 
 
+simplify :: Ast -> Ast
+simplify u@(UnaryNode _ _ _) = untilNoChange (mapToExpr transExpr) u
+simplify e@(BinNode _ _ _ _) = e -- TODO
+
+
 transExpr :: Ast -> Ast
 -- calculate const
 transExpr (BinNode o _ (Number _ n) (Number _ n')) = pNum $ calc n o n'
@@ -14,9 +19,6 @@ transExpr (BinNode Mul _ (Number _ 0) e) = pNum 0
 -- expr * 1 = a
 transExpr (BinNode Mul _ e (Number _ 1)) = e
 transExpr (BinNode Mul _ (Number _ 1) e) = e
--- id * 2 = id + id
-transExpr (BinNode Mul _ (Identifier _ a) (Number _ 2)) = pAdd (pId a) (pId a)
-transExpr (BinNode Mul _ (Number _ 2) (Identifier _ a)) = pAdd (pId a) (pId a)
 -- id / id = 1
 transExpr e@(BinNode Div _ (Identifier _ a) (Identifier _ b)) = if a == b then pNum 1 else e
 -- 0 / expr = 0
@@ -39,7 +41,7 @@ transExpr (BinNode Sub _ a (BinNode Add _ b c)) = pSub (pSub a b) c
 transExpr (BinNode Sub _ a (BinNode Sub _ b c)) = pAdd (pSub a b) c
 -- a * (b * c) = a * b * c
 transExpr (BinNode Mul _ a (BinNode Mul _ b c)) = pMul (pMul a b) c
--- id * a ± id * b = id * (a + b)
+-- id * a ± id * b = id * (a ± b)
 transExpr e@(BinNode Add _ (BinNode Mul _ a b) (BinNode Mul _ c d)) = case (a, b, c, d) of
     (Identifier _ x, y, Identifier _ x', y') -> if x == x' then pMul (pAdd y y') (pId x) else e
     (Identifier _ x, y, y', Identifier _ x') -> if x == x' then pMul (pAdd y y') (pId x) else e
@@ -87,12 +89,36 @@ transExpr (UnaryNode Neg _ (UnaryNode Neg _ a)) = a
 transExpr (UnaryNode Not _ (UnaryNode Not _ a)) = arithToBool a
 -- !(-a) = !a
 transExpr (UnaryNode Not _ (UnaryNode Neg _ a)) = pNot a
+-- Neg n = Number (-n)
+transExpr (UnaryNode Neg _ (Number _ n)) = pNum $ negate n
+-- !n = Number (n==0)
+transExpr (UnaryNode Not _ (Number _ n)) = pNum $ fromEnum (n == 0)
 transExpr e = e
 
 
-simplify :: Ast -> Ast
-simplify u@(UnaryNode _ _ _) = untilNoChange (mapToExpr transExpr) u
-simplify e@(BinNode _ _ _ _) = e -- TODO
+apply :: Ast -> (Int, String) -> (Ast, Bool)
+apply exp t@(x, "") = case exp of
+    -- apply n n' -> n + n'
+    Number _ n -> (pNum $ n + x, True)
+    -- apply (a + b) n -> (apply a n) + b | a + (apply b n) | a + b
+    e@(BinNode Add _ l r) -> case apply l t of
+        (_, False) -> case apply r t of
+            (_, False) -> (e, False)
+            (r', True) -> (pAdd l r', True)
+        (l', True) -> (pAdd l' r, True)
+    -- apply (a - b) n -> (apply a n) - b | a - (apply b (-n)) | a - b
+    e@(BinNode Sub _ l r) -> case apply l t of
+        (_, False) -> case apply r (negate x, "") of
+            (_, False) -> (e, False)
+            (r', True) -> (pSub l r', True)
+        (l', True) -> (pSub l' r, True)
+    -- apply (-a) n -> -(apply a (-n))
+    e@(UnaryNode Neg _ a) -> case apply a (negate x, "") of
+        (_, False) -> (e, False)
+        (a', True) -> (pNeg a', True)
+    e -> (e, False)
+
+apply exp t@(x, vn) = undefined -- TODO
 
 
 mapToExpr :: (Ast -> Ast) -> Ast -> Ast
