@@ -244,7 +244,7 @@ semaExpr (BinNode o p l r) sc st = toExpr o (semaExpr l sc st) (semaExpr r sc st
         toExpr o a b = case (a, b) of
             (Nothing, _)     -> Nothing
             (_, Nothing)     -> Nothing
-            (Just a, Just b) -> Just $ BinNode o p a b
+            (Just a, Just b) -> Just $ simplify $ BinNode o p a b
 
 
 semaExpr (UnaryNode o _ e) sc st =

@@ -6,8 +6,41 @@ import Grammar
 
 
 simplify :: Ast -> Ast
-simplify u@(UnaryNode _ _ _) = untilNoChange (mapToExpr transExpr) u
-simplify e@(BinNode _ _ _ _) = e -- TODO
+simplify = untilNoChange (mapToExpr (tryApply . transExpr))
+
+
+mapToExpr :: (Ast -> Ast) -> Ast -> Ast
+mapToExpr f (BinNode o _ l r) = f $ pBin o (mapToExpr f l) (mapToExpr f r)
+mapToExpr f (UnaryNode o _ a) = f $ pUnary o $ mapToExpr f a
+mapToExpr f x = f x
+
+
+untilNoChange :: Eq a => (a -> a) -> a -> a
+untilNoChange f x = until_no_change' f (f x) x where
+    until_no_change' f x x' = if x == x' then x else until_no_change' f (f x) x
+
+
+-- transform arith-expr to bool-expr, e.g. a - b ==> a != b
+arithToBool :: Ast -> Ast
+arithToBool e = case e of
+    Number _ n -> pNum $ fromEnum (n/=0)
+    BinNode Sub _ l r -> pBin Neq l r
+    BinNode Mul _ (Number _ n) r -> if n == 0 then pNum 0 else pBin Neq r (pNum 0)
+    BinNode Mul _ l (Number _ n) -> if n == 0 then pNum 0 else pBin Neq l (pNum 0)
+    BinNode op _ _ _
+        | op `elem` [Gt, Ls, GE, LE, Equ, Neq, And, Or] -> e
+        | otherwise -> pBin Neq e (pNum 0)
+    _ -> pBin Neq e (pNum 0)
+
+
+calc :: Int -> Op -> Int -> Int
+calc a op b = let f = fromEnum in
+    case op of {
+        Mul -> a * b      ; Div -> a `div` b  ; Add -> a + b     ; Sub -> a - b     ;
+        Gt  -> f $ a > b  ; Ls  -> f $ a < b  ; GE -> f $ a >= b ; LE -> f $ a <= b ;
+        Equ -> f $ a == b ; Neq -> f $ a /= b ;
+        And -> f $ a /= 0 && b /= 0 ;
+        Or  -> f $ a /= 0 || b /= 0 }
 
 
 transExpr :: Ast -> Ast
@@ -158,40 +191,55 @@ apply exp Mul t@(x, "") = case exp of
     e -> Left e
 
 
-mapToExpr :: (Ast -> Ast) -> Ast -> Ast
-mapToExpr f (BinNode o _ l r) = f $ pBin o (mapToExpr f l) (mapToExpr f r)
-mapToExpr f (UnaryNode o _ a) = f $ pUnary o $ mapToExpr f a
-mapToExpr f x = f x
-
-
-untilNoChange :: Eq a => (a -> a) -> a -> a
-untilNoChange f x = until_no_change' f (f x) x where
-    until_no_change' f x x' = if x == x' then x else until_no_change' f (f x) x
-
-
--- transform arith-expr to bool-expr, e.g. a - b ==> a != b
-arithToBool :: Ast -> Ast
-arithToBool e = case e of
-    Number _ n -> pNum $ fromEnum (n/=0)
-    BinNode Sub _ l r -> pBin Neq l r
-    BinNode Mul _ (Number _ n) r -> if n == 0 then pNum 0 else pBin Neq r (pNum 0)
-    BinNode Mul _ l (Number _ n) -> if n == 0 then pNum 0 else pBin Neq l (pNum 0)
-    BinNode op _ _ _
-        | op `elem` [Gt, Ls, GE, LE, Equ, Neq, And, Or] -> e
-        | otherwise -> pBin Neq e (pNum 0)
-    _ -> pBin Neq e (pNum 0)
-
-
-calc :: Int -> Op -> Int -> Int
-calc a op b = let f = fromEnum in
-    case op of {
-        Mul -> a * b      ; Div -> a `div` b  ; Add -> a + b     ; Sub -> a - b     ;
-        Gt  -> f $ a > b  ; Ls  -> f $ a < b  ; GE -> f $ a >= b ; LE -> f $ a <= b ;
-        Equ -> f $ a == b ; Neq -> f $ a /= b ;
-        And -> f $ a /= 0 && b /= 0 ;
-        Or  -> f $ a /= 0 || b /= 0 }
-
-
-pexpr = (\(Right x) -> x) . (parse expr)
-testx = (\(Right x) -> x) $ parse expr "1-(1-1)-(1-a*2+1/3)+5*10*a+1+(1+1+1)+1"
+tryApply :: Ast -> Ast
+tryApply exp = case exp of
+    -- a +/- n -> apply a (+) (n/-n)
+    BinNode op _ a (Number _ n) | op `elem` [Add, Sub] ->
+        case apply a Add (if op == Add then n else negate n, "") of
+            Right a' -> a'
+            _        -> exp
+    -- n + a -> apply a (+) n
+    BinNode Add _ (Number _ n) a -> case apply a Add (n, "") of
+        Right a' -> a'
+        _        -> exp
+    -- n - a -> -(apply a (+) -n)
+    BinNode Sub _ (Number _ n) a -> case apply a Add (negate n, "") of
+        Right a' -> pNeg a'
+        _        -> exp
+    -- a * n -> apply a (*) n
+    BinNode Mul _ a (Number _ n) -> case apply a Mul (n, "") of
+        Right a' -> a'
+        _        -> exp
+    BinNode Mul _ (Number _ n) a -> case apply a Mul (n, "") of
+        Right a' -> a'
+        _        -> exp
+    UnaryNode Neg _ a -> case apply a Mul (-1, "") of
+        Right a' -> a'
+        _        -> exp
+    -- a +/- id -> apply a (+) id/-id
+    BinNode op _ a b | op `elem` [Add, Sub] -> case (a, b) of
+        (_, Identifier _ name) -> case apply a Add (if op == Add then 1 else -1, name) of
+            Right a' -> a'
+            _        -> exp
+        (Identifier _ name, _) -> case apply a Add (if op == Add then 1 else -1, name) of
+            Right a' -> if op == Add then a' else pNeg a'
+            _        -> exp
+        (_, BinNode Mul _ (Number _ n) (Identifier _ name)) ->
+            case apply a Add (if op == Add then n else negate n, name) of
+                Right a' -> a'
+                _        -> exp
+        (_, BinNode Mul _ (Identifier _ name) (Number _ n)) ->
+            case apply a Add (if op == Add then n else negate n, name) of
+                Right a' -> a'
+                _        -> exp
+        (BinNode Mul _ (Number _ n) (Identifier _ name), _) ->
+            case apply a Add (if op == Add then n else negate n, name) of
+                Right a' -> if op == Add then a' else pNeg a'
+                _        -> exp
+        (BinNode Mul _ (Identifier _ name) (Number _ n), _) ->
+            case apply a Add (if op == Add then n else negate n, name) of
+                Right a' -> if op == Add then a' else pNeg a'
+                _        -> exp
+        _ -> exp
+    _ -> exp
 
