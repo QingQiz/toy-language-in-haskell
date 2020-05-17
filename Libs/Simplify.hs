@@ -19,6 +19,9 @@ transExpr (BinNode Mul _ (Number _ 0) e) = pNum 0
 -- expr * 1 = a
 transExpr (BinNode Mul _ e (Number _ 1)) = e
 transExpr (BinNode Mul _ (Number _ 1) e) = e
+-- expr * (-1) = Neg expr
+transExpr (BinNode Mul _ e (Number _ (-1))) = pNeg e
+transExpr (BinNode Mul _ (Number _ (-1)) e) = pNeg e
 -- id / id = 1
 transExpr e@(BinNode Div _ (Identifier _ a) (Identifier _ b)) | a == b = pNum 1
 -- 0 / expr = 0
@@ -61,6 +64,11 @@ transExpr (BinNode Sub _ (UnaryNode Neg _ a) b) = pNeg (pAdd a b)
 transExpr (BinNode And _ (UnaryNode Not _ a) (UnaryNode Not _ b)) = pNot $ pBin Or  a b
 -- (!a||!b) = !(a&&b)
 transExpr (BinNode Or  _ (UnaryNode Not _ a) (UnaryNode Not _ b)) = pNot $ pBin And a b
+-- bool-expr != 0 = bool-expr
+transExpr (BinNode Neq _ (Number _ 0) e@(BinNode op _ _ _)) | op `elem` [Gt, Ls, GE, LE, Equ, Neq, And, Or] = e
+transExpr (BinNode Neq _ e@(BinNode op _ _ _) (Number _ 0)) | op `elem` [Gt, Ls, GE, LE, Equ, Neq, And, Or] = e
+transExpr (BinNode Neq _ (Number _ 0) e@(UnaryNode Not _ _)) = e
+transExpr (BinNode Neq _ e@(UnaryNode Not _ _) (Number _ 0)) = e
 
 -- -(a - b) = b - a
 transExpr (UnaryNode Neg _ (BinNode Sub _ a b)) = pSub b a
@@ -94,26 +102,28 @@ transExpr e = e
 
 
 apply :: Ast -> Op -> (Int, String) -> Either Ast Ast
-apply exp Add t@(x, "") = case exp of
+apply exp Add t@(x, name) = case exp of
     -- apply n (+) n' -> n + n'
-    Number _ n -> Right $ pNum $ n + x
+    Number _ n | name == "" -> Right $ pNum $ n + x
+    -- apply id (+) n*id -> (n + 1) * id
+    Identifier _ name' | name == name' -> Right $ pMul (pId name) (pNum $ x + 1)
     -- apply (a + b) (+) n -> (apply a (+) n) + b | a + (apply b (+) n) | a + b
     -- apply (a - b) (+) n -> (apply a (+) n) - b | a - (apply b (+) (-n)) | a - b
     e@(BinNode op _ l r) | op `elem` [Add, Sub] ->
         case apply l Add t of
-            Left _ -> case apply r Add (if op == Add then t else (negate x, "")) of
+            Left _ -> case apply r Add (if op == Add then t else (negate x, name)) of
                 Left _   -> Left e
                 Right r' -> Right $ pBin op l r'
             Right l' -> Right $ pBin op l' r
     -- apply (-a) (+) n -> -(apply a (+) (-n))
-    e@(UnaryNode Neg _ a) -> case apply a Add (negate x, "") of
+    e@(UnaryNode Neg _ a) -> case apply a Add (negate x, name) of
         Left _ -> Left e
         Right a' -> Right $ pNeg a'
     -- apply n*b (+) n' -> n * (apply b (+) (n' `div` n)) | n * b
     e@(BinNode Mul _ _ _) ->
         let f a n = if x `mod` n == 0
-            then case apply a Add (x `div` n, "") of
-                Left _ -> Left e
+            then case apply a Add (x `div` n, name) of
+                Left _   -> Left e
                 Right a' -> Right $ pMul a' $ pNum n
             else Left e
         in case e of
@@ -124,6 +134,10 @@ apply exp Add t@(x, "") = case exp of
 apply exp Mul t@(x, "") = case exp of
     -- apply n (*) x -> n * x
     Number _ n -> Right $ pNum $ x * n
+    -- apply (a - b) (*) -1 -> b - a
+    BinNode Sub _ a b | x == -1 -> Right $ pSub b a
+    -- apply (-a) (*) -1 -> a
+    UnaryNode Neg _ a | x == -1 -> Right a
     -- apply (a * b) (*) x -> (apply a (*) x) * b | a * (apply b (*) x) | a * b
     e@(BinNode Mul _ a b) -> case apply a Mul t of
         Left _ -> case apply b Mul t of
@@ -134,40 +148,13 @@ apply exp Mul t@(x, "") = case exp of
     e@(BinNode op _ _ _) | op `elem` [Add, Sub] ->
         let
             f a n = case apply a Mul t of
-                Left _ -> Left e
+                Left _   -> Left e
                 Right a' -> Right $ pBin op a' $ pNum (n * x)
         in case e of
             BinNode _ _ (Number _ n) a -> f a n
             BinNode _ _ a (Number _ n) -> f a n
     -- apply (-a) (*) x -> apply a (*) (-x)
     e@(UnaryNode Neg _ a) -> apply a Mul (negate x, "")
-    e -> Left e
-
-apply exp Add t@(x, name) = case exp of
-    -- apply a (+) a' -> n + n'
-    Identifier _ name' | name == name' -> Right $ pMul (pId name) (pNum 2)
-    -- apply (a + b) (+) n -> (apply a (+) n) + b | a + (apply b (+) n) | a + b
-    -- apply (a - b) (+) n -> (apply a (+) n) - b | a - (apply b (+) (-n)) | a - b
-    e@(BinNode op _ l r) | op `elem` [Add, Sub] ->
-        case apply l Add t of
-            Left _ -> case apply r Add (if op == Add then t else (negate x, "")) of
-                Left _ -> Left e
-                Right r' -> Right $ pBin op l r'
-            Right l' -> Right $ pBin op l' r
-    -- apply (-a) (+) n -> -(apply a (+) (-n))
-    e@(UnaryNode Neg _ a) -> case apply a Add (negate x, "") of
-        Left _ -> Left e
-        Right a' -> Right $ pNeg a'
-    -- apply n*b (+) n' -> n * (apply b (+) (n' `div` n)) | n * b
-    e@(BinNode Mul _ _ _) ->
-        let f a n = if x `mod` n == 0
-            then case apply a Add (x `div` n, "") of
-                Left _ -> Left e
-                Right a' -> Right $ pMul a' $ pNum n
-            else Left e
-        in case e of
-            BinNode _ _ a (Number _ n) -> f a n
-            BinNode _ _ (Number _ n) a -> f a n
     e -> Left e
 
 
