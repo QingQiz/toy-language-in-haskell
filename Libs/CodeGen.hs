@@ -1,7 +1,6 @@
 module CodeGen(runCodeGen) where
 
 import Ast
-import Symbol
 import Register
 
 import Data.Char

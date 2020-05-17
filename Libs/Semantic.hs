@@ -2,7 +2,6 @@ module Semantic where
 
 import Ast
 import Symbol
-import Grammar
 import Simplify
 
 import Data.Char
@@ -15,7 +14,7 @@ semaProgram :: Ast -> Maybe Ast
 semaProgram (Program sc cst var fun) =
     semaConst cst sc empty_st >>= semaVar var sc >>= semaFunc fun sc >>= rebuild where
         rebuild :: ([Ast], SymbolTable) -> Maybe Ast
-        rebuild (asts, _) = Just $ Program "" [] var asts
+        rebuild (asts, _) = Just $ pProgram "" [] var asts
 
 
 semaConst :: [Ast] -> String -> SymbolTable -> Maybe SymbolTable
@@ -75,7 +74,7 @@ semaFunc (f:fs) sc st = semaAFun f st >>> semaFunc fs sc where
                                 nst' = Map.union nst (Map.insert fn fs st)
                                 -- insert ("", SFunction) to symbol table to ckeck ret_stmt
                             in case semaComdStmt fb sc (Map.insert "" (STempSymbol fn fs) nst') of
-                                Just ast -> Just (FuncDef ft pf (Identifier p fn) pl ast, Map.insert fn fs st)
+                                Just ast -> Just (pFunc ft (pId fn) pl ast, Map.insert fn fs st)
                                 _        -> Nothing
                 Nothing  -> Nothing
             Just SReserveSymbol -> putSemaError sc p "Use a reserve symbol:" fn
@@ -98,13 +97,13 @@ semaComdStmt :: Ast -> String -> SymbolTable -> Maybe Ast
 semaComdStmt (ComdStmt p cs vs sl) sc st =
     Just empty_st >>= semaConst cs sc >>= semaVar vs sc >>= unionST >>= semaStmtList sl sc >>= rebuild where
         unionST st' = Just $ Map.union st' st
-        rebuild ast = Just $ ComdStmt p [] vs ast
+        rebuild ast = Just $ pComd [] vs ast
 
 
 semaStmtList :: Ast -> String -> SymbolTable -> Maybe Ast
 semaStmtList (StmtList p stmts) sc st = toStmtList $ semaStmts stmts [] where
     toStmtList :: Maybe [Ast] -> Maybe Ast
-    toStmtList (Just x) = Just $ StmtList p x
+    toStmtList (Just x) = Just $ pStmtList x
     toStmtList Nothing  = Nothing
 
     semaStmts :: [Ast] -> [Ast] -> Maybe [Ast]
@@ -118,7 +117,7 @@ semaAStmt (IfStmt p c s es) sc st = toIfStmt $ case semaExpr c sc st of
     _      -> Nothing
     where
         toIfStmt Nothing = Nothing
-        toIfStmt (Just [a, b, c]) = Just $ IfStmt p a b c
+        toIfStmt (Just [a, b, c]) = Just $ pIf a b c
 
 
 semaAStmt sl@(StmtList _ _) sc st = semaStmtList sl sc st
@@ -133,7 +132,7 @@ semaAStmt (ForStmt p s e u b) sc st = toForStmt $ case semaExpr e sc st of
     _      -> Nothing
     where
         toForStmt Nothing = Nothing
-        toForStmt (Just [a, b, c, d]) = Just $ ForStmt p a b c d
+        toForStmt (Just [a, b, c, d]) = Just $ pFor a b c d
 
 
 semaAStmt (DoStmt p s c) sc st = toDoStmt $ case semaExpr c sc st of
@@ -143,7 +142,7 @@ semaAStmt (DoStmt p s c) sc st = toDoStmt $ case semaExpr c sc st of
     Nothing -> Nothing
     where
         toDoStmt Nothing = Nothing
-        toDoStmt (Just [a, b]) = Just $ DoStmt p a b
+        toDoStmt (Just [a, b]) = Just $ pDo a b
 
 
 semaAStmt (Rd p rd) sc st = toReadStmt $ for_rest rd where
@@ -152,7 +151,7 @@ semaAStmt (Rd p rd) sc st = toReadStmt $ for_rest rd where
     for_rest [] = Just []
 
     check p x = case Map.lookup x st of
-        Just (SVariable _)    -> Just $ Identifier p x
+        Just (SVariable _)    -> Just $ pId x
         Nothing               -> putSemaError sc p "Variable not in scope:" x
         Just (SArray SInt _)  -> putSemaError sc p
             ("Couldn't match excepted type " ++ srd_str "int" ++ " with actual type " ++ srd_str "int[]" ++ ":") x
@@ -163,7 +162,7 @@ semaAStmt (Rd p rd) sc st = toReadStmt $ for_rest rd where
         _                     -> putSemaError sc p "Type error for" x
 
     toReadStmt Nothing = Nothing
-    toReadStmt (Just a) = Just $ Rd p a
+    toReadStmt (Just a) = Just $ pRd a
 
 
 semaAStmt (Wt p s e) sc st = bind (semaFormatStr s) $ foldr step (Just []) e where
@@ -172,18 +171,18 @@ semaAStmt (Wt p s e) sc st = bind (semaFormatStr s) $ foldr step (Just []) e whe
         Just x  -> case semaExpr e sc st of
             Just a  -> Just $ a : x
             Nothing -> Nothing
-    bind (Just a) (Just b) = Just $ Wt p a b
+    bind (Just a) (Just b) = Just $ pWt a b
     bind _ _ = Nothing
 
 
 semaAStmt (Ret p e) sc st = case semaExpr e sc st of
     Just x -> case Map.lookup "" st of
         Just (STempSymbol fn (SFunction SVoid _)) -> case x of
-            Empty -> Just $ Ret p Empty
+            Empty -> Just $ pRet Empty
             _     -> putSemaError sc p "Return a none-void value in void function" fn
         Just (STempSymbol fn _) -> case x of
             Empty -> putSemaError sc p "Return a void value in none-void function" fn
-            x     -> Just $ Ret p x
+            x     -> Just $ pRet x
     Nothing -> Nothing
 
 
@@ -204,7 +203,7 @@ semaAStmt (FuncCall p (Identifier pi fn) pl) sc st = case Map.lookup fn st of
             Nothing -> Nothing
 
         toFuncCall Nothing = Nothing
-        toFuncCall (Just x) = Just $ FuncCall p (Identifier pi fn) x
+        toFuncCall (Just x) = Just $ pFC (pId fn) x
 
 
 semaAStmt Empty _ _ = Just Empty
@@ -213,12 +212,12 @@ semaAStmt Empty _ _ = Just Empty
 semaAStmt (Assign p l r) sc st = case l of
     (Array _ _ _) -> case semaExpr l sc st of
         Just x  -> case semaExpr r sc st of
-            Just a  -> Just $ Assign p x a
+            Just a  -> Just $ pAssign x a
             Nothing -> Nothing
         Nothing -> Nothing
     (Identifier pi i) -> case Map.lookup i st of
         Just (SVariable _) -> case semaExpr r sc st of
-            Just a  -> Just $ Assign p l a
+            Just a  -> Just $ pAssign l a
             Nothing -> Nothing
         Nothing -> putSemaError sc pi "Variable not in scope:" i
 
@@ -244,7 +243,7 @@ semaExpr (BinNode o p l r) sc st = toExpr o (semaExpr l sc st) (semaExpr r sc st
         toExpr o a b = case (a, b) of
             (Nothing, _)     -> Nothing
             (_, Nothing)     -> Nothing
-            (Just a, Just b) -> Just $ simplify $ BinNode o p a b
+            (Just a, Just b) -> Just $ simplify $ pBin o a b
 
 
 semaExpr (UnaryNode o _ e) sc st =
@@ -255,14 +254,14 @@ semaExpr (UnaryNode o _ e) sc st =
 
 semaExpr (Array pa (Identifier pi n) i) sc st = case Map.lookup n st of
     Just (SArray _ _) -> case semaExpr i sc st of
-        Just a  -> Just $ Array pa (Identifier pi n) a
+        Just a  -> Just $ pArr (pId n) a
         Nothing -> Nothing
     _ -> putSemaError sc pi "Variable not in scope:" n
 
 
 semaExpr ident@(Identifier p i) sc st = case Map.lookup i st of
     Just x@(SVariable _)   -> Just ident
-    Just x@(SConst _  n)   -> Just $ Number (0, 0) n
+    Just x@(SConst _  n)   -> Just $ pNum n
     Just x@(SArray _  _)   -> putSemaError sc p
         ("Couldn't match excepted type " ++ srd_str "int/char" ++ " with actual type " ++ srd_str "array" ++ ":") i
     Just x@(SFunction _ _) -> putSemaError sc p
@@ -277,7 +276,7 @@ semaExpr fc@(FuncCall pf (Identifier p fn) pl) sc st = case Map.lookup fn st of
 
 
 semaExpr n@(Number _ _) _ _ = Just n
-semaExpr (Ch _ c) _ _ = Just $ Number (0, 0) (ord c)
+semaExpr (Ch _ c) _ _ = Just $ pNum (ord c)
 semaExpr Empty _ _ = Just Empty
 
 
