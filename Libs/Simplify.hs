@@ -20,7 +20,7 @@ transExpr (BinNode Mul _ (Number _ 0) e) = pNum 0
 transExpr (BinNode Mul _ e (Number _ 1)) = e
 transExpr (BinNode Mul _ (Number _ 1) e) = e
 -- id / id = 1
-transExpr e@(BinNode Div _ (Identifier _ a) (Identifier _ b)) = if a == b then pNum 1 else e
+transExpr e@(BinNode Div _ (Identifier _ a) (Identifier _ b)) | a == b = pNum 1
 -- 0 / expr = 0
 transExpr (BinNode Div _ (Number _ 0) e) = pNum 0
 -- expr / 1 = expr
@@ -34,24 +34,19 @@ transExpr (BinNode Sub _ (Number _ 0) e) = pNeg e
 -- id - id = 0
 transExpr e@(BinNode Sub _ (Identifier _ a) (Identifier _ b)) = if a == b then pNum 0 else e
 -- a + (c ± d) = a + c ± d
-transExpr (BinNode Add _ a (BinNode Add _ b c)) = pAdd (pAdd a b) c
-transExpr (BinNode Add _ a (BinNode Sub _ b c)) = pAdd (pAdd a b) c
+transExpr (BinNode Add _ a (BinNode op _ b c)) | op `elem` [Add, Sub] = pBin op (pAdd a b) c
 -- a - (c ± d) = a - c ∓ d
 transExpr (BinNode Sub _ a (BinNode Add _ b c)) = pSub (pSub a b) c
 transExpr (BinNode Sub _ a (BinNode Sub _ b c)) = pAdd (pSub a b) c
 -- a * (b * c) = a * b * c
 transExpr (BinNode Mul _ a (BinNode Mul _ b c)) = pMul (pMul a b) c
 -- id * a ± id * b = id * (a ± b)
-transExpr e@(BinNode Add _ (BinNode Mul _ a b) (BinNode Mul _ c d)) = case (a, b, c, d) of
-    (Identifier _ x, y, Identifier _ x', y') -> if x == x' then pMul (pAdd y y') (pId x) else e
-    (Identifier _ x, y, y', Identifier _ x') -> if x == x' then pMul (pAdd y y') (pId x) else e
-    (y, Identifier _ x, Identifier _ x', y') -> if x == x' then pMul (pAdd y y') (pId x) else e
-    (y, Identifier _ x, y', Identifier _ x') -> if x == x' then pMul (pAdd y y') (pId x) else e
-transExpr e@(BinNode Sub _ (BinNode Mul _ a b) (BinNode Mul _ c d)) = case (a, b, c, d) of
-    (Identifier _ x, y, Identifier _ x', y') -> if x == x' then pMul (pSub y y') (pId x) else e
-    (Identifier _ x, y, y', Identifier _ x') -> if x == x' then pMul (pSub y y') (pId x) else e
-    (y, Identifier _ x, Identifier _ x', y') -> if x == x' then pMul (pSub y y') (pId x) else e
-    (y, Identifier _ x, y', Identifier _ x') -> if x == x' then pMul (pSub y y') (pId x) else e
+transExpr e@(BinNode op _ (BinNode Mul _ a b) (BinNode Mul _ c d)) | op `elem` [Add, Sub] =
+    case (a, b, c, d) of
+        (Identifier _ x, y, Identifier _ x', y') -> if x == x' then pMul (pBin op y y') (pId x) else e
+        (Identifier _ x, y, y', Identifier _ x') -> if x == x' then pMul (pBin op y y') (pId x) else e
+        (y, Identifier _ x, Identifier _ x', y') -> if x == x' then pMul (pBin op y y') (pId x) else e
+        (y, Identifier _ x, y', Identifier _ x') -> if x == x' then pMul (pBin op y y') (pId x) else e
 -- a + (-b) = a - b
 transExpr (BinNode Add _ a (UnaryNode Neg _ b)) = pSub a b
 -- a - (-b) = a + b
@@ -96,29 +91,55 @@ transExpr (UnaryNode Not _ (Number _ n)) = pNum $ fromEnum (n == 0)
 transExpr e = e
 
 
-apply :: Ast -> (Int, String) -> (Ast, Bool)
-apply exp t@(x, "") = case exp of
-    -- apply n n' -> n + n'
+apply :: Ast -> Op -> (Int, String) -> (Ast, Bool)
+apply exp Add t@(x, "") = case exp of
+    -- apply n (+) n' -> n + n'
     Number _ n -> (pNum $ n + x, True)
-    -- apply (a + b) n -> (apply a n) + b | a + (apply b n) | a + b
-    e@(BinNode Add _ l r) -> case apply l t of
-        (_, False) -> case apply r t of
-            (_, False) -> (e, False)
-            (r', True) -> (pAdd l r', True)
-        (l', True) -> (pAdd l' r, True)
-    -- apply (a - b) n -> (apply a n) - b | a - (apply b (-n)) | a - b
-    e@(BinNode Sub _ l r) -> case apply l t of
-        (_, False) -> case apply r (negate x, "") of
-            (_, False) -> (e, False)
-            (r', True) -> (pSub l r', True)
-        (l', True) -> (pSub l' r, True)
-    -- apply (-a) n -> -(apply a (-n))
-    e@(UnaryNode Neg _ a) -> case apply a (negate x, "") of
+    -- apply (a + b) (+) n -> (apply a (+) n) + b | a + (apply b (+) n) | a + b
+    -- apply (a - b) (+) n -> (apply a (+) n) - b | a - (apply b (+) (-n)) | a - b
+    e@(BinNode op _ l r) | op `elem` [Add, Sub] ->
+        case apply l Add t of
+            (_, False) -> case apply r Add (if op == Add then t else (negate x, "")) of
+                (_, False) -> (e, False)
+                (r', True) -> (pBin op l r', True)
+            (l', True) -> (pBin op l' r, True)
+    -- apply (-a) (+) n -> -(apply a (+) (-n))
+    e@(UnaryNode Neg _ a) -> case apply a Add (negate x, "") of
         (_, False) -> (e, False)
         (a', True) -> (pNeg a', True)
+    -- apply n*b (+) n' -> n * (apply b (+) (n' `div` n)) | n * b
+    e@(BinNode Mul _ _ _) ->
+        let f a n = if x `mod` n == 0
+            then case apply a Add (x `div` n, "") of
+                (_, False) -> (e, False)
+                (a', True) -> (pMul a' $ pNum n, True)
+            else (e, False)
+        in case e of
+            BinNode _ _ a (Number _ n) -> f a n
+            BinNode _ _ (Number _ n) a -> f a n
     e -> (e, False)
 
-apply exp t@(x, vn) = undefined -- TODO
+apply exp Mul t@(x, "") = case exp of
+    -- apply n (*) x -> n * x
+    Number _ n -> (pNum $ x * n, True)
+    -- apply (a * b) (*) x -> (apply a (*) x) * b | a * (apply b (*) x) | a * b
+    e@(BinNode Mul _ a b) -> case apply a Mul t of
+        (_, False) -> case apply b Mul t of
+            (_, False) -> (e, False)
+            (b', True) -> (pMul a b', True)
+        (a', True) -> (pMul a' b, True)
+    -- apply (a ± n) (*) x -> (apply a (*) x) ± (n * x)
+    e@(BinNode op _ _ _) | op `elem` [Add, Sub] ->
+        let
+            f a n = case apply a Mul t of
+                (_, False) -> (e, False)
+                (a', True) -> (pBin op a' $ pNum (n * x), True)
+        in case e of
+            BinNode _ _ (Number _ n) a -> f a n
+            BinNode _ _ a (Number _ n) -> f a n
+    -- apply (-a) (*) x -> apply a (*) (-x)
+    e@(UnaryNode Neg _ a) -> apply a Mul (negate x, "")
+    e -> (e, False)
 
 
 mapToExpr :: (Ast -> Ast) -> Ast -> Ast
