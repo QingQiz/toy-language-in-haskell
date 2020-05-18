@@ -4,7 +4,8 @@ import Ast
 
 
 simplify :: Ast -> Ast
-simplify = untilNoChange (mapToExpr (transExpr . tryMerge))
+simplify = untilNoChange (mapToExpr afterTrans)
+         . untilNoChange (mapToExpr (transExpr . tryMerge))
          . untilNoChange (mapToExpr (tryApply . transExpr))
          . untilNoChange (mapToExpr expand)
 
@@ -41,6 +42,16 @@ calc a op b = let f = fromEnum in
         Equ -> f $ a == b ; Neq -> f $ a /= b ;
         And -> f $ a /= 0 && b /= 0 ;
         Or  -> f $ a /= 0 || b /= 0 }
+
+
+notOp op = case op of {
+        Neq -> Equ; Equ -> Neq; Gt -> LE; Ls -> GE; GE -> Ls; LE -> Gt; _ -> op
+    }
+
+
+negOp op = case op of {
+        Gt -> Ls; Ls -> Gt; GE -> LE; LE -> GE; _ -> op
+    }
 
 
 findFactor :: Ast -> Ast -> Either Ast Ast
@@ -83,24 +94,14 @@ expand e@(BinNode Mul _ exp (Number _ n)) = case exp of
     BinNode op _ a b | op `elem` [Add, Sub] -> pBin op (pMul a $ pNum n) (pMul b $ pNum n)
     BinNode op _ a b | op `elem` [Add, Sub] -> pBin op (pMul a $ pNum n) (pMul b $ pNum n)
     _ -> e
--- -(a - b) = b - a
-expand (UnaryNode Neg _ (BinNode Sub _ a b)) = pSub b a
--- not expr
-expand (UnaryNode Not _ (BinNode op _ a b))
-    -- !(a op b) = a (!op) b
-    | op `elem` [Neq, Equ, Gt, Ls, GE, LE] =
-        let op' = case op of {
-                Neq -> Equ; Equ -> Neq; Gt -> LE; Ls -> GE; GE -> Ls; LE -> Gt; _ -> op
-            }
-        in pBin op' a b
-    -- !(a && !b) = !a || b, !(a || !b) = !a && b
-    | op `elem` [And, Or] = let op' = if op == And then Or else And in
-        case (a, b) of
-            (UnaryNode Not _ a', _) -> pBin op' a' (pNot b)
-            (a, UnaryNode Not _ b') -> pBin op' (pNot a) b'
-    -- !(a-b) = (a == b)
-    | otherwise =
-        expand $ pNot $ arithToBool $ pBin op a b
+expand e@(BinNode Mul _ (Identifier _ n) exp) = case exp of
+    BinNode op _ a b | op `elem` [Add, Sub] -> pBin op (pMul a $ pId n) (pMul b $ pId n)
+    BinNode op _ a b | op `elem` [Add, Sub] -> pBin op (pMul a $ pId n) (pMul b $ pId n)
+    _ -> e
+expand e@(BinNode Mul _ exp (Identifier _ n)) = case exp of
+    BinNode op _ a b | op `elem` [Add, Sub] -> pBin op (pMul a $ pId n) (pMul b $ pId n)
+    BinNode op _ a b | op `elem` [Add, Sub] -> pBin op (pMul a $ pId n) (pMul b $ pId n)
+    _ -> e
 expand e = e
 
 
@@ -167,6 +168,15 @@ tryMerge e@(BinNode op _ a b) | op `elem` [Add, Sub] =
 tryMerge e = e
 
 
+afterTrans :: Ast -> Ast
+-- (a op b) bool-op 0 = a bool-op b
+afterTrans e@(BinNode op _ a (Number _ 0)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = case a of
+        BinNode Add _ a b -> pBin op a $ simplify $ pNeg b
+        BinNode Sub _ a b -> pBin op a b
+        _ -> e
+afterTrans e = e
+
+
 transExpr :: Ast -> Ast
 -- calculate const
 transExpr (BinNode o _ (Number _ n) (Number _ n')) = pNum $ calc n o n'
@@ -195,6 +205,22 @@ transExpr (BinNode Sub _ e (Number _ 0)) = e
 transExpr (BinNode Sub _ (Number _ 0) e) = pNeg e
 -- id - id = 0
 transExpr e@(BinNode Sub _ (Identifier _ a) (Identifier _ b)) | a == b = pNum 0
+-- a && a = a
+transExpr (BinNode And _ (Identifier _ a) (Identifier _ b)) | a == b = arithToBool (pId a)
+-- a && 0 = 0
+-- a && 1 = a
+transExpr (BinNode And _ a (Number _ n)) | n /= 0 = arithToBool a
+                                         | n == 0 = pNum 0
+transExpr (BinNode And _ (Number _ n) a) | n /= 0 = arithToBool a
+                                         | n == 0 = pNum 0
+-- a || a = a
+transExpr (BinNode Or _ (Identifier _ a) (Identifier _ b)) | a == b = arithToBool (pId a)
+-- a || 0 = a
+-- a || 1 = 1
+transExpr (BinNode And _ a (Number _ n)) | n == 0 = arithToBool a
+                                         | n /= 0 = pNum 1
+transExpr (BinNode And _ (Number _ n) a) | n == 0 = arithToBool a
+                                         | n /= 0 = pNum 1
 -- a + (c ± d) = a + c ± d
 transExpr (BinNode Add _ a (BinNode op _ b c)) | op `elem` [Add, Sub] = pBin op (pAdd a b) c
 -- a - (c ± d) = a - c ∓ d
@@ -219,14 +245,42 @@ transExpr (BinNode Neq _ (Number _ 0) e@(BinNode op _ _ _)) | op `elem` [Gt, Ls,
 transExpr (BinNode Neq _ e@(BinNode op _ _ _) (Number _ 0)) | op `elem` [Gt, Ls, GE, LE, Equ, Neq, And, Or] = e
 transExpr (BinNode Neq _ (Number _ 0) e@(UnaryNode Not _ _)) = e
 transExpr (BinNode Neq _ e@(UnaryNode Not _ _) (Number _ 0)) = e
--- (a op b) bool-op 0 = a bool-op b
-transExpr e@(BinNode op _ a (Number _ 0)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = case a of
-        BinNode Add _ a b -> pBin op a $ pNeg b
-        BinNode Sub _ a b -> pBin op a b
+-- -a op 0 = a (-op) 0
+transExpr (BinNode op _ (UnaryNode Neg _ a) (Number _ 0)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin (negOp op) a (pNum 0)
+transExpr (BinNode op _ (Number _ 0) (UnaryNode Neg _ a)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin (negOp op) (pNum 0) a
+-- a * n op 0 = a (op / n) 0
+transExpr e@(BinNode op _ (BinNode Mul _ a b) (Number _ 0)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] =
+    case (a, b) of
+        (Number _ n, _) | n > 0 -> pBin op b (pNum 0)
+                        | n < 0 -> pBin (negOp op) b (pNum 0)
+        (_, Number _ n) | n > 0 -> pBin op a (pNum 0)
+                        | n < 0 -> pBin (negOp op) a (pNum 0)
         _ -> e
-transExpr (BinNode op _ (Number _ 0) a) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = undefined
+transExpr e@(BinNode op _ (Number _ 0) (BinNode Mul _ a b)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] =
+    case (a, b) of
+        (Number _ n, _) | n > 0 -> pBin op (pNum 0) b
+                        | n < 0 -> pBin (negOp op) (pNum 0) b
+        (_, Number _ n) | n > 0 -> pBin op (pNum 0) a
+                        | n < 0 -> pBin (negOp op) (pNum 0) a
+        _ -> e
+-- a bool-op b = (a + Neg b) bool-op 0
+transExpr (BinNode op _ a b) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin op (pSub a b) (pNum 0)
+-- not expr
+transExpr (UnaryNode Not _ (BinNode op _ a b))
+    -- !(a op b) = a (!op) b
+    | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin (notOp op) a b
+    -- !(a && !b) = !a || b, !(a || !b) = !a && b
+    | op `elem` [And, Or] = let op' = if op == And then Or else And in
+        case (a, b) of
+            (UnaryNode Not _ a', _) -> pBin op' a' (pNot b)
+            (a, UnaryNode Not _ b') -> pBin op' (pNot a) b'
+    -- !(a-b) = (a == b)
+    | otherwise =
+        transExpr $ pNot $ arithToBool $ pBin op a b
 -- -(-a) = a
 transExpr (UnaryNode Neg _ (UnaryNode Neg _ a)) = a
+-- -(a - b) = b - a
+transExpr (UnaryNode Neg _ (BinNode Sub _ a b)) = pSub b a
 -- !(!a) = (bool)a
 transExpr (UnaryNode Not _ (UnaryNode Not _ a)) = arithToBool a
 -- !(-a) = !a
@@ -304,22 +358,17 @@ tryApply :: Ast -> Ast
 -- a +/- n -> apply a (+) (n/-n)
 tryApply e@(BinNode op _ a (Number _ n)) | op `elem` [Add, Sub] =
     fromEither e $ apply a Add (if op == Add then n else negate n, "")
-
 -- n + a -> apply a (+) n
 tryApply e@(BinNode Add _ (Number _ n) a) = fromEither e $ apply a Add (n, "")
-
 -- n - a -> -(apply a (+) -n)
 tryApply e@(BinNode Sub _ (Number _ n) a) = case apply a Add (negate n, "") of
     Right a' -> pNeg a'
     _        -> e
-
 -- a * n -> apply a (*) n
 tryApply e@(BinNode Mul _ a (Number _ n)) = fromEither e $ apply a Mul (n, "")
 tryApply e@(BinNode Mul _ (Number _ n) a) = fromEither e $ apply a Mul (n, "")
-
 -- -a -> apply a (*) -1
 tryApply e@(UnaryNode Neg _ a) = fromEither e $ apply a Mul (-1, "")
-
 -- a +/- id -> apply a (+) id/-id
 tryApply e@(BinNode op _ a b) | op `elem` [Add, Sub] = case (a, b) of
     (_, Identifier _ name) -> fromEither e $ apply a Add (if op == Add then 1 else -1, name)
@@ -339,6 +388,5 @@ tryApply e@(BinNode op _ a b) | op `elem` [Add, Sub] = case (a, b) of
             Right b' -> if op == Add then b' else pNeg b'
             _        -> e
     _ -> e
-
 tryApply e = e
 
