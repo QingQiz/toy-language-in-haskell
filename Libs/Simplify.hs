@@ -171,7 +171,9 @@ tryMerge e = e
 afterTrans :: Ast -> Ast
 -- (a op b) bool-op 0 = a bool-op b
 afterTrans e@(BinNode op _ a (Number _ 0)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = case a of
-        BinNode Add _ a b -> pBin op a $ simplify $ pNeg b
+        BinNode Add _ a b -> case apply a Mul (-1, "") of
+            Right x -> pBin (negOp op) x b
+            Left _  -> pBin op a $ simplify $ pNeg b
         BinNode Sub _ a b -> pBin op a b
         _ -> e
 afterTrans e = e
@@ -246,23 +248,27 @@ transExpr (BinNode Neq _ e@(BinNode op _ _ _) (Number _ 0)) | op `elem` [Gt, Ls,
 transExpr (BinNode Neq _ (Number _ 0) e@(UnaryNode Not _ _)) = e
 transExpr (BinNode Neq _ e@(UnaryNode Not _ _) (Number _ 0)) = e
 -- -a op 0 = a (-op) 0
-transExpr (BinNode op _ (UnaryNode Neg _ a) (Number _ 0)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin (negOp op) a (pNum 0)
-transExpr (BinNode op _ (Number _ 0) (UnaryNode Neg _ a)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin (negOp op) (pNum 0) a
--- a * n op 0 = a (op / n) 0
-transExpr e@(BinNode op _ (BinNode Mul _ a b) (Number _ 0)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] =
-    case (a, b) of
-        (Number _ n, _) | n > 0 -> pBin op b (pNum 0)
-                        | n < 0 -> pBin (negOp op) b (pNum 0)
-        (_, Number _ n) | n > 0 -> pBin op a (pNum 0)
-                        | n < 0 -> pBin (negOp op) a (pNum 0)
+transExpr (BinNode op _ (UnaryNode Neg _ a) (Number _ 0))
+    | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin (negOp op) a (pNum 0)
+transExpr (BinNode op _ (Number _ 0) (UnaryNode Neg _ a))
+    | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin (negOp op) (pNum 0) a
+-- a * n op x = a (op / n) (x / n)
+transExpr e@(BinNode op _ (BinNode Mul _ a b) (Number _ x))
+    | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = case (a, b) of
+        (Number _ n, _) | test n && n > 0 -> pBin op b (next n)
+                        | test n && n < 0 -> pBin (negOp op) b (next n)
+        (_, Number _ n) | test n && n > 0 -> pBin op a (next n)
+                        | test n && n < 0 -> pBin (negOp op) a (next n)
         _ -> e
-transExpr e@(BinNode op _ (Number _ 0) (BinNode Mul _ a b)) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] =
-    case (a, b) of
-        (Number _ n, _) | n > 0 -> pBin op (pNum 0) b
-                        | n < 0 -> pBin (negOp op) (pNum 0) b
-        (_, Number _ n) | n > 0 -> pBin op (pNum 0) a
-                        | n < 0 -> pBin (negOp op) (pNum 0) a
+    where test n = x `mod` n == 0; next n = pNum $ x `div` n
+transExpr e@(BinNode op _ (Number _ x) (BinNode Mul _ a b))
+    | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = case (a, b) of
+        (Number _ n, _) | test n && n > 0 -> pBin op (next n) b
+                        | test n && n < 0 -> pBin (negOp op) (next n) b
+        (_, Number _ n) | test n && n > 0 -> pBin op (next n) a
+                        | test n && n < 0 -> pBin (negOp op) (next n) a
         _ -> e
+    where test n = x `mod` n == 0; next n = pNum $ x `div` n
 -- a bool-op b = (a + Neg b) bool-op 0
 transExpr (BinNode op _ a b) | op `elem` [Neq, Equ, Gt, Ls, GE, LE] = pBin op (pSub a b) (pNum 0)
 -- not expr
@@ -331,6 +337,9 @@ apply exp Mul t@(x, "") = case exp of
     Number _ n -> Right $ pNum $ x * n
     -- apply (a - b) (*) -1 -> b - a
     BinNode Sub _ a b | x == -1 -> Right $ pSub b a
+    -- apply (a + n) (*) -1 -> (-n) - a
+    BinNode Add _ (Number _ n) a -> Right $ pSub (pNum $ negate n) a
+    BinNode Add _ a (Number _ n) -> Right $ pSub (pNum $ negate n) a
     -- apply (-a) (*) -1 -> a
     UnaryNode Neg _ a | x == -1 -> Right a
     -- apply (a * b) (*) x -> (apply a (*) x) * b | a * (apply b (*) x) | a * b
