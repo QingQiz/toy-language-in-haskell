@@ -43,7 +43,7 @@
 <cmp_expr>   ::= <arith_expr> <cmp_op> <arith_expr>
 <arith_expr> ::= [ + | - ] <factor> {<add_op> <factor>}
 <factor>     ::= <unary_expr> {<mul_op> <unary_expr>}
-<unary_expr> ::= {!} <term>
+<unary_expr> ::= { ! | - } <term>
 <term>       ::= <id> | <idnetifier> \[ <expr> \] | <integer> | <char> | <func_call> | \(<expr>\)
 
 <type_id>    ::= int | char
@@ -80,11 +80,15 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o 
 
 ## TODO LIST
 
-- [ ] optimization
-  - [x] replace const-var with its value
-  - [x] simplify expressions
-    - [x] unary operation (Neg, Not)
-    - [x] binary operation
-  - [ ] peephole optimization on x86-asm
-  - [ ] realloca register
+- [ ] Optimization
+  - [x] Arithmetic simplification
+    - [x] Constant folding
+    - [x] Unary operation (Neg, Not)
+    - [x] Binary operation (+,-,*,/,>,<,>=,<=,==,!=,&&,||)
+  - [ ] CFG
+  - [ ] Common subexpression elimination
+  - [ ] Copy propagation
+  - [ ] Dead code elimination
+  - [ ] Peephole optimization
+  - [ ] Register reallocation
 
