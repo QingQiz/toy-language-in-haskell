@@ -118,25 +118,33 @@ cAStmt Empty rgt = ([], rgt) -- or return nop
 cAStmt (IfStmt _ c s Empty) rgt =
     let
         l_end = get_label rgt
-        (stmt_head, reg, rgt') = cExpr c $ update_label rgt
-        stmt_cmpr = ["\tcmpl\t$0, " ++ reg, "\tje\t" ++ l_end]
+        (stmt_head, rgt') = cCond c False l_end $ update_label rgt
         then_stmt = cAStmt s rgt'
     in
-        (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ [l_end ++ ":"], snd then_stmt)
+        case c of
+            Number _ n ->
+                if n == 0
+                then ([], rgt)
+                else let res = cAStmt s rgt in (fst res, snd res)
+            _ -> (stmt_head ++ fst then_stmt ++ [l_end ++ ":"], snd then_stmt)
 
 cAStmt (IfStmt _ c s es) rgt =
     let
         l_else = get_label rgt
         l_end = get_label $ snd else_stmt
 
-        (stmt_head, reg, rgt') = cExpr c $ update_label $ snd else_stmt
-        stmt_cmpr = ["\tcmpl\t$0, " ++ reg, "\tje\t" ++ l_else]
+        (stmt_head, rgt') = cCond c False l_else $ update_label $ snd else_stmt
 
         then_stmt = cAStmt s  (update_label rgt)
         else_stmt = cAStmt es (snd then_stmt)
     in
-        (stmt_head ++ stmt_cmpr ++ fst then_stmt ++ ["\tjmp\t" ++ l_end]
-         ++ [l_else ++ ":"] ++ fst else_stmt ++ [l_end ++ ":"], rgt')
+        case c of
+            Number _ n ->
+                if n == 0
+                then let res = cAStmt es rgt in (fst res, snd res)
+                else let res = cAStmt  s rgt in (fst res, snd res)
+            _ -> (stmt_head ++ fst then_stmt ++ ["\tjmp\t" ++ l_end] ++
+                 [l_else ++ ":"] ++ fst else_stmt ++ [l_end ++ ":"], rgt')
 
 cAStmt (DoStmt _ lb cnd) rgt =
     let
@@ -152,11 +160,11 @@ cAStmt (DoStmt _ lb cnd) rgt =
             $ Map.insert ".continue" (l_continue, 0)
             $ Map.insert ".break" (l_break, 0) $ update_label rgt''
 
-        (cmpr, reg, rgt_final) = cExpr cnd $ snd body
+        (cmpr, rgt_final) = cCond cnd True l_beg $ snd body
         cond_inst = case cnd of
             Number _ n | n == 0 -> []
                        | n /= 0 -> ["\tjmp\t" ++ l_beg]
-            _ -> cmpr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_beg]
+            _ -> cmpr
     in
         ([l_beg ++ ":"] ++ fst body ++
          [l_continue ++ ":"] ++ cond_inst ++
@@ -181,13 +189,13 @@ cAStmt (ForStmt _ init cond step lpbd) rgt =
         loop_body = cAStmt lpbd
             $ Map.insert ".continue" (l_continue, 0)
             $ Map.insert ".break" (l_break, 0) $ snd step_stmt
-        (cond_expr, reg, rgt_final) = cExpr cond (snd loop_body) -- expr,, can be empty
+        (cond_expr, rgt_final) = cCond cond True l_body (snd loop_body) -- expr,, can be empty
 
         cond_inst = case cond of
             Empty -> ["\tjmp\t" ++ l_body]
             Number _ n | n == 0 -> []
                        | n /= 0 -> ["\tjmp\t" ++ l_body]
-            _ -> cond_expr ++ ["\tcmpl\t$0, " ++ reg, "\tjne\t" ++ l_body]
+            _ -> cond_expr
     in
         (fst init_stmt ++ ["\tjmp\t" ++ l_cond] ++
          [l_body ++ ":"] ++ fst loop_body ++
@@ -481,4 +489,44 @@ cExpr Empty rgt = ([], "%eax", rgt)
 
 cExpr (Ch _ c) rgt = cExpr (Number (0,0) (ord c)) rgt
 
+
+-- exp -> default-jump-method -> jump-target -> register-table -> (asm, register-table)
+cCond :: Ast -> Bool -> String -> RegTable -> ([String], RegTable)
+cCond exp fb_j lb rgt = case exp of
+    BinNode op _ l r | op `elem` [Gt, Ls, GE, LE, Equ, Neq] ->
+        let
+            (exprl, regl, rgt' ) = cExpr r rgt
+            (exprr, regr, rgt'') = cExpr l rgt'
+
+            regr'  = get_free_reg [regr, regl]
+            regl'  = get_free_reg [regr, regr']
+            hregl  = get_high_reg regl
+            hregl' = get_high_reg regl'
+        in case (exprl, exprr) of
+            ([], []) -> (conn_inst "movl" regr regr' ++ bind op regl regr', rgt'') -- n op n
+            (_ , []) -> (exprl ++ conn_inst "movl" regr regr' ++ bind op regl regr', rgt'') -- n op l
+            ([], _ ) -> (exprr ++ bind op regl regr, rgt'') -- r op n
+            (_ , _ ) -> (exprl ++ ["\tpushq\t" ++ hregl] ++ -- r op l
+                         exprr ++ ["\tpopq\t" ++ hregl'] ++ bind op regl' regr, rgt'')
+    _ ->
+        let (exprx, regx, rgtx) = cExpr exp rgt in
+            (exprx ++ conn_inst "cmpl" "$0" regx ++ jmp "ne", rgtx)
+    where
+        bind Gt  l r = conn_inst "cmpl"  l r ++ jmp "g"
+        bind Ls  l r = conn_inst "cmpl"  l r ++ jmp "l"
+        bind GE  l r = conn_inst "cmpl"  l r ++ jmp "ge"
+        bind LE  l r = conn_inst "cmpl"  l r ++ jmp "le"
+        bind Equ l r = conn_inst "cmpl"  l r ++ jmp "e"
+        bind Neq l r = conn_inst "cmpl"  l r ++ jmp "ne"
+
+        conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
+        jmp i = ["\tj" ++ fix_md i ++ "\t" ++ lb]
+
+        fix_md x = if fb_j then x else fix_md' x
+        fix_md' "g"  = "le"
+        fix_md' "l"  = "ge"
+        fix_md' "ge" = "l"
+        fix_md' "le" = "g"
+        fix_md' "e"  = "ne"
+        fix_md' "ne" = "e"
 
