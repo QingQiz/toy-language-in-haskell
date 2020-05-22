@@ -1,0 +1,18 @@
+int a;
+
+int f2() {
+    a = a + 1;
+    return 1;
+}
+
+void f(int b) {
+    b = b && f2();
+}
+
+int main() {
+    a = 10;
+    f(0);
+    printf("a=%d\n", a);
+    f(1);
+    printf("a=%d\n", a);
+}
