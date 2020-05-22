@@ -108,7 +108,7 @@ do_stmt = DoStmt
 -- func-call
 func_call = FuncCall <!> ident <*> (spcChar '(' >> sepByE (spcChar ',') expr <* spcChar ')')
 
--- ret-sttm
+-- ret-stmt
 ret = Ret <!> (spcStr "return" >> (some space >> expr) <?> nothing)
 
 -- read-stmt
