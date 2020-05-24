@@ -1,6 +1,7 @@
 module Simplify where
 
 import Ast
+import Functions
 
 
 simplify :: Ast -> Ast
@@ -14,11 +15,6 @@ mapToExpr :: (Ast -> Ast) -> Ast -> Ast
 mapToExpr f (BinNode o _ l r) = f $ pBin o (mapToExpr f l) (mapToExpr f r)
 mapToExpr f (UnaryNode o _ a) = f $ pUnary o $ mapToExpr f a
 mapToExpr f x = f x
-
-
-untilNoChange :: Eq a => (a -> a) -> a -> a
-untilNoChange f x = until_no_change' f (f x) x where
-    until_no_change' f x x' = if x == x' then x else until_no_change' f (f x) x
 
 
 -- transform arith-expr to bool-expr, e.g. a - b ==> a != b
