@@ -62,6 +62,13 @@
 
 ## Build & Run
 
+### Dependence
+
+```
+cabal install MissingH
+cabal install split
+```
+
 ### Build
 
 ```shell
