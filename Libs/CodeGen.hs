@@ -2,6 +2,7 @@ module CodeGen where
 
 import Ast
 import Register
+import Functions
 
 import Data.Char
 import Data.List
@@ -429,7 +430,6 @@ cExpr (BinNode op _ l r) rgt =
         reg_ret r = case op of
             Div -> "%eax"
             _   -> r
-        conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
         set_reg i reg = let low = get_low_reg reg in
             ["\tset" ++ i ++ "\t" ++ low] ++ conn_inst "movzbl" low reg
 
@@ -519,7 +519,6 @@ cCond exp fb_j lb rgt = case exp of
         bind Equ l r = conn_inst "cmpl"  l r ++ jmp "e"
         bind Neq l r = conn_inst "cmpl"  l r ++ jmp "ne"
 
-        conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
         jmp i = ["\tj" ++ fix_md i ++ "\t" ++ lb]
 
         fix_md x = if fb_j then x else fix_md' x
