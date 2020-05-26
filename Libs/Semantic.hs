@@ -219,6 +219,7 @@ semaAStmt (Assign p l r) sc st = case l of
         Just (SVariable _) -> case semaExpr r sc st of
             Just a  -> Just $ pAssign l a
             Nothing -> Nothing
+        Just _  -> putSemaError sc pi "Type Error:" i
         Nothing -> putSemaError sc pi "Variable not in scope:" i
 
 
