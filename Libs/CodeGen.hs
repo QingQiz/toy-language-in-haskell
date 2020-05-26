@@ -218,7 +218,10 @@ cAStmt (Assign _ (Identifier _ i) e) rgt =
         inst = case (e, siz) of
             (Number _ n, 1) -> ["\tmovb\t$" ++ show n ++ ", " ++ regl]
             (Number _ n, 4) -> ["\tmovl\t$" ++ show n ++ ", " ++ regl]
-            (_         , 1) -> expr ++ ["\tmovb\t" ++ get_low_reg reg ++ ", " ++ regl]
+            (_         , 1) -> let freg = get_free_reg [reg, regl] in
+                if isRegGroup reg
+                then expr ++ conn_inst "movl" reg freg ++ conn_inst "movb" (get_low_reg freg) regl
+                else expr ++ conn_inst "movb" (get_low_reg reg) regl
             (_         , 4) -> expr ++ ["\tmovl\t" ++ reg ++ ", " ++ regl]
     in
         (inst, rgt')
