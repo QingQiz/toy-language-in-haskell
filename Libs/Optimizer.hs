@@ -16,8 +16,8 @@ doGlobalOptimize cfg =
         (ids, bbs_org) = unzip $ Map.toList $ getBasicBlocks cfg
         fs = splitWithFunction bbs_org
     in
-        -- concat $ concat $ map globalOptimizeOnAFunction fs
-        map globalOptimizeOnAFunction fs
+        concat $ concat $ map globalOptimizeOnAFunction fs
+        -- map globalOptimizeOnAFunction fs
     where
         splitWithFunction bbs = foldr step [] bbs where
             step b z@(x:xs) = case getEntry b of
@@ -27,19 +27,19 @@ doGlobalOptimize cfg =
 
 
 globalOptimizeOnAFunction bbs = let (tac, size) = unzip $ map (toTAC . getCode) bbs in
-    (map commonSubexprElim tac, size)
+    map commonSubexprElim tac
 
 
 globalDeadCodeElim tac = undefined
 
 
-commonSubexprElim tac = untilNoChange (\x -> csElim x [] (Map.fromList []) (Map.fromList [])) tac where
+commonSubexprElim tac = untilNoChange (\x -> csElim x [] Map.empty Map.empty) tac where
     csElim (c:cs) code z eq =
         csElim cs (doReplace c z eq : code) (updateZ c z) (updateEQ c eq)
-    csElim [] code _ _ = reverse code
+    csElim [] code _ _ = constFolding $ reverse code
 
     updateZ c z =
-        if snd c == "" || isLetter (head $ fst c)
+        if snd c == "" || isLetter (head $ fst c) || '%' `notElem` (snd c)
         then z
         else if not $ isSimple (snd c) then Map.insert (snd c) (fst c) z else z
 
@@ -49,7 +49,7 @@ commonSubexprElim tac = untilNoChange (\x -> csElim x [] (Map.fromList []) (Map.
         else if isSimple (snd c) then Map.insert (fst c) (snd c) z else z
 
     doReplace x@(_, "") _ _ = x
-    doReplace c z eq = if '%' `notElem` fst c then c else
+    doReplace c z eq =
         -- common subexpression elimination
         case Map.lookup (snd c) z of
             Nothing -> if isRegGroup (snd c) && head (snd c) == '*'
@@ -64,15 +64,15 @@ commonSubexprElim tac = untilNoChange (\x -> csElim x [] (Map.fromList []) (Map.
     doCopy c eq = case getOperand c of
         (a, "", _) -> case copy a eq of
             Nothing -> if isRegGroup a
-                then let (h:val) = getGroupVal a in h ++ func val []
+                then let (h:val) = getGroupVal a in h ++ copyIntoG val []
                 else a
             Just  x -> x
         (a, b, op) -> doCopy a eq ++ op ++ doCopy b eq
         where
-            func (c:cs) z = case copy c eq of
-                Nothing -> func cs (c:z)
-                Just  x -> if isRegGroup x then func cs (c:z) else func cs (x:z)
-            func [] z = "(" ++ intercalate "," (reverse z) ++ ")"
+            copyIntoG (c:cs) z = case copy c eq of
+                Nothing -> copyIntoG cs (c:z)
+                Just  x -> if isRegGroup x then copyIntoG cs (c:z) else copyIntoG cs (x:z)
+            copyIntoG [] z = "(" ++ intercalate "," (reverse z) ++ ")"
 
     copy a eq = if a == "" || "%rsp" `isPrefixOf` a then Nothing else
         case Map.lookup a eq of
@@ -86,18 +86,44 @@ commonSubexprElim tac = untilNoChange (\x -> csElim x [] (Map.fromList []) (Map.
 
 getGroupVal rg = init $ concat $ map (splitOn ")") $ concat $ map (splitOn "(") $ splitOn "," rg
 
-isSimple c = not (isRegGroup c) && case break (\x -> x `elem` "+-*/") (tail $ tail c) of
-    ("", _) -> True
-    (_, "") -> True
-    _       -> False
-
-getOperand c = let (x, y) = splitAt 2 c in
-    case break (\x -> x `elem` "+-*/") y of
-        (a, "") -> (x ++ a, "", "")
-        (a, b ) -> (x ++ a, tail b, head b : [])
+isSimple c = not (isRegGroup c) && case getOperand c of
+    (a, "", "") -> True
+    _           -> False
 
 
-toTAC code = toTAC' code [] (Map.fromList []) (Map.fromList []) where
+getOperand c =
+    let h = takeWhile (\x -> x `elem` "+-*/~$") c
+        c' = drop (length h) c
+    in case break (\x -> x `elem` "+-*/~") c' of
+        (a, "") -> (h ++ a, "", "")
+        (a, b ) -> (h ++ a, tail b, head b : [])
+
+
+constFolding tac = untilNoChange foldOnce tac where
+    foldOnce tac =
+        let bk = break (\x -> 2 == (cnt '$' $ snd x )) tac
+            (h, (a, b):r) = bk -- this won't be evaluated when (snd bk) is empty
+            (x, y, op) = getOperand (replace "$" "" b)
+            (x', y') = (read x :: Int, read y :: Int)
+            res x = (++) h $ (a, '$' : show x) : r
+            resj x l = if x then (++) h $ ("jmp", l) : (tail r) else h ++ (tail r)
+        in if null $ snd bk then tac else case op of
+            "+" -> res $ x' + y'
+            "-" -> res $ x' - y'
+            "*" -> res $ x' * y'
+            "/" -> res $ x' `div` y'
+            "~" -> let (j, l) = head r in case j of
+                "je"  -> (x' == y') `resj` l
+                "jne" -> (x' /= y') `resj` l
+                "jg"  -> (x' >  y') `resj` l
+                "jl"  -> (x' <  y') `resj` l
+                "jge" -> (x' >= y') `resj` l
+                "jle" -> (x' <= y') `resj` l
+                "jmp" -> True       `resj` l
+                _ -> error $ show (j, l)
+
+
+toTAC code = toTAC' code [] Map.empty Map.empty where
     toTAC' (c:cs) res m t
         | isCommd "movl" c = let x = trans c "=" m in toTAC' cs (fst x:res) (snd x) (updateT c 4 t)
         | isCommd "movb" c = let x = trans c "=" m in toTAC' cs (fst x:res) (snd x) (updateT c 1 t)
@@ -149,7 +175,7 @@ toTAC code = toTAC' code [] (Map.fromList []) (Map.fromList []) where
         "l" -> let r = fixr b in ((fst r, tail $ fixRegG a), snd r)
         "/" -> let r = fixr b ; b = "%eax" in
             ((fst r, fixl b ++ op ++ fixl a), snd r)
-        "~" -> (("cmp", fixl a ++ op ++ fixl b), m)
+        "~" -> (("cmp", fixl b ++ op ++ fixl a), m)
         "j" -> ((getCommd c, getCommdTarget c), m)
         _   -> let r = fixr b in
             ((fst r, fixl b ++ op ++ fixl a), snd r)
