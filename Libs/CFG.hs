@@ -16,6 +16,7 @@ data CFG = CFG {
     } deriving (Show, Eq)
 
 data BasicBlock = BasicBlock {
+        getId :: Int,
         getCode :: AsmCode,
         getEntry :: [Int]
     } | BadBlock deriving (Show, Eq)
@@ -47,7 +48,7 @@ buildCFG code =
         merge bbs = untilNoChange (\x -> merge' x []) bbs where
             merge' (a@(ida, bba):b@(idb, bbb):r) z =
                 if length (getEntry bba) == 1 && cnt idb entries == 1 && head (getEntry bba) == idb
-                then merge' r $ (ida, BasicBlock (fixl (getCode bba) ++ fixr (getCode bbb)) $ getEntry bbb):z
+                then merge' r $ (ida, BasicBlock ida (fixl (getCode bba) ++ fixr (getCode bbb)) $ getEntry bbb):z
                 else merge' (b:r) (a:z)
                 where entries = concat $ map (\(_, b) -> getEntry b) bbs
             merge' (x:[]) z = reverse (x:z)
@@ -71,7 +72,7 @@ buildCFG code =
                 jmp = findJmp bs []
                 block_to = (zipWith findLabelId (init bs) jmp) ++ [[fst $ head bs]]
                 bbs = bind block_to bs
-                fixed_bbs = init bbs ++ (\(BasicBlock x t) -> [BasicBlock x []]) (last bbs)
+                fixed_bbs = init bbs ++ (\(BasicBlock id x t) -> [BasicBlock id x []]) (last bbs)
             in
                 zip (fst $ unzip bs) fixed_bbs
             where
@@ -90,7 +91,7 @@ buildCFG code =
                 -- convert code block and its jump target to BasicBlock
                 bind block_to bs = zipWith bind' block_to bs where
                     ids = concat block_to
-                    bind' entry (id, code) = if id `notElem` ids then BadBlock else BasicBlock code entry
+                    bind' entry (id, code) = if id `notElem` ids then BadBlock else BasicBlock id code entry
 
         -- assign id to each code block
         makeId l = zipWith bind len l where
