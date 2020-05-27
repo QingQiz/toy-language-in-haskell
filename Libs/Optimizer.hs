@@ -16,8 +16,8 @@ doGlobalOptimize cfg =
         (ids, bbs_org) = unzip $ Map.toList $ getBasicBlocks cfg
         fs = splitWithFunction bbs_org
     in
-        concat $ concat $ map globalOptimizeOnAFunction fs
-        -- map globalOptimizeOnAFunction fs
+        -- concat $ concat $ map globalOptimizeOnAFunction fs
+        map globalOptimizeOnAFunction fs
     where
         splitWithFunction bbs = foldr step [] bbs where
             step b z@(x:xs) = case getEntry b of
@@ -26,17 +26,65 @@ doGlobalOptimize cfg =
             step b [] = [[b]]
 
 
-globalOptimizeOnAFunction bbs = let (tac, size) = unzip $ map (toTAC . getCode) bbs in
-    map commonSubexprElim tac
+globalOptimizeOnAFunction bbs =
+    let 
+        (tac, size) = unzip $ map (toTAC . getCode) bbs
+        id = map getId bbs
+        entry = map getEntry bbs
+    in
+        (commonSubexprElim (head tac) Map.empty Map.empty, globalDeadCodeElim tac id entry)
 
 
-globalDeadCodeElim tac = undefined
+
+globalDeadCodeElim tacs ids entries = buildLiveness (last tacs, last ids, last entries) [[]]
+    where
+        -- TODO push up live variables
+        buildLiveness (tac, id, entry) z = collectLivness tac z
+        collectLivness tac init = foldr step init tac where
+            step x z = (getLivness x (head z)) : z
+
+        getLivness (a, b) init = getRegs b ++ removeItem a init
+
+        getRegs x = if not (isReg x) then [] else
+            if isRegGroup x
+            then let (_:vals) = getGroupVal x in
+                 (:) x $ concat $ map getRegs vals
+            else if isSimple x
+                then [x]
+                else let (a, b, op) = getOperand x in
+                    getRegs a ++ getRegs b
 
 
-commonSubexprElim tac = untilNoChange (\x -> csElim x [] Map.empty Map.empty) tac where
+globalCommonSubexprElim bbs =
+    let
+        (tac, size) = unzip $ map (toTAC . getCode) bbs
+        id = map getId bbs
+        entry = map getEntry bbs
+        (tac', zs, eqs) = unzip3 $ map (\x -> commonSubexprElim x Map.empty Map.empty) tac
+    in
+        (map reduce eqs, map reduce zs)
+    where
+        -- TODO select which reg to use: [%eax3, %eax6] -maybe-> [%eax3]
+        -- this can be determined after global dead code elimination
+        reduce m = let (a, b) = unzip $ Map.toList m in id m
+            --Map.fromAscList $ zip (map fixRegIndex a) (map fixRegIndex b)
+
+        fixRegIndex r = if not (isReg r) then r else
+            if isRegGroup r
+            then let (h:vals) = getGroupVal r in
+                h ++ "(" ++ intercalate "," (map fixRegIndex vals) ++ ")"
+            else if isSimple r
+                then reverse ((:) '0' $ dropWhile isDigit $ reverse r)
+                else let (a, b, op) =  getOperand r in
+                    fixRegIndex a ++ op ++ fixRegIndex b
+                
+
+commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Map.empty) where
+    convert (tac, _, _) = csElim tac [] init_z init_eq
+
     csElim (c:cs) code z eq =
         csElim cs (doReplace c z eq : code) (updateZ c z) (updateEQ c eq)
-    csElim [] code _ _ = constFolding $ reverse code
+    csElim [] code z eq = (constFolding $ reverse code, z, eq)
 
     updateZ c z =
         if snd c == "" || isLetter (head $ fst c) || '%' `notElem` (snd c)
@@ -64,7 +112,7 @@ commonSubexprElim tac = untilNoChange (\x -> csElim x [] Map.empty Map.empty) ta
     doCopy c eq = case getOperand c of
         (a, "", _) -> case copy a eq of
             Nothing -> if isRegGroup a
-                then let (h:val) = getGroupVal a in h ++ copyIntoG val []
+                then let (h:val) = getGroupVal a in h ++ copyIntoG val [] ++ (snd $ break (==')') a)
                 else a
             Just  x -> x
         (a, b, op) -> doCopy a eq ++ op ++ doCopy b eq
@@ -190,16 +238,18 @@ toTAC code = toTAC' code [] Map.empty Map.empty where
                     i !! 1
                 else r
             fixl xi = let x = fixRegG $ fixReg xi in
-                if '%' `notElem` x || (isDigit $ last x) || isRegGroup x
-                then if isRegGroup x then "*" ++ x else x
-                else case Map.lookup x m of
-                    Nothing -> x ++ "0"
-                    Just  i -> x ++ show i
+                if isReg x
+                then let idx = getIdx x m in
+                    (if isRegGroup x then "*" else "") ++ x ++ show idx
+                else x
             fixr xi = let x = fixRegG $ fixReg xi in
-                if '%' `notElem` x || isRegGroup x
-                then (if isRegGroup x then "*" ++ x else x, m)
-                else case Map.lookup x m of
-                    Nothing -> (x ++ "1", Map.insert x 1 m)
-                    Just  i -> (x ++ show (i + 1), Map.insert x (i + 1) m)
+                if isReg x
+                then let idx = 1 + getIdx x m in
+                    ((if isRegGroup x then "*" else "") ++ x ++ show idx, Map.insert x idx m)
+                else (x, m)
+
+            getIdx x m = case Map.lookup x m of
+                Nothing -> 0
+                Just  i -> i
 
 
