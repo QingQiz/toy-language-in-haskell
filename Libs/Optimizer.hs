@@ -8,6 +8,7 @@ import Data.List
 import Data.List.Split
 import Data.List.Utils
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 
 -- doLocalOptimize :: CFG -> CFG
@@ -27,32 +28,62 @@ doGlobalOptimize cfg =
 
 
 globalOptimizeOnAFunction bbs =
-    let 
+    let
         (tac, size) = unzip $ map (toTAC . getCode) bbs
         id = map getId bbs
         entry = map getEntry bbs
     in
-        (commonSubexprElim (head tac) Map.empty Map.empty, globalDeadCodeElim tac id entry)
+        --(commonSubexprElim (head tac) Map.empty Map.empty, globalDeadCodeElim tac id entry)
+        globalDeadCodeElim tac id entry
 
 
 
-globalDeadCodeElim tacs ids entries = buildLiveness (last tacs, last ids, last entries) [[]]
+globalDeadCodeElim tacs ids entries =
+    let
+        liv = buildLiveness (head tacs) (head ids) (head entries) [] id_liv
+    in
+        liv
     where
-        -- TODO push up live variables
-        buildLiveness (tac, id, entry) z = collectLivness tac z
-        collectLivness tac init = foldr step init tac where
+        id_entry_t = zip ids entries
+        id_entry   = Map.fromList id_entry_t
+        id_tac     = Map.fromList $ zip ids tacs
+        id_liv     = Map.insert (last ids) ["%eax"]
+            $ Map.fromList
+            $ zip ids
+            $ replicate (length ids) []
+
+        buildLiveness tac id [] vis id_liv = updateLiv tac id id_liv
+
+        buildLiveness tac id entry vis id_liv =
+            let (id_liv', _) = foldr step (id_liv, vis) entry where
+                    step x z@(id_liv, vis) = if x `elem` vis then z else
+                        let tac     = getItem x id_tac
+                            entry   = getItem x id_entry
+                            id_liv' = buildLiveness tac x entry (x:vis) id_liv
+                        in (id_liv', x:vis)
+            in updateLiv tac id id_liv'
+
+        updateLiv tac id id_liv =
+            let liv      = collectLivness tac $ getItem id id_liv
+                push_up  = map rmRegIndex $ head liv
+                upstream = find_upstream id
+                id_liv'  = foldr (\id m -> updateLiv' id push_up m) id_liv upstream
+            in  id_liv'
+            where
+                updateLiv' id l id_liv =
+                    let x = l ++ getItem id id_liv
+                        x' = Set.toList $ Set.fromList x
+                    in Map.insert id x' id_liv
+
+        find_upstream id = map fst $ filter (\x -> id `elem` snd x) id_entry_t
+
+        collectLivness tac liv = init $ foldr step [liv] tac where
             step x z = (getLivness x (head z)) : z
 
-        getLivness (a, b) init = getRegs b ++ removeItem a init
+            getLivness (a, b) init = getRegs b ++ specialRemove a init
 
-        getRegs x = if not (isReg x) then [] else
-            if isRegGroup x
-            then let (_:vals) = getGroupVal x in
-                 (:) x $ concat $ map getRegs vals
-            else if isSimple x
-                then [x]
-                else let (a, b, op) = getOperand x in
-                    getRegs a ++ getRegs b
+            specialRemove a l = let fixed_reg = rmRegIndex a in
+                removeWhere (\x -> x == fixed_reg || x == a) l
 
 
 globalCommonSubexprElim bbs =
@@ -69,15 +100,6 @@ globalCommonSubexprElim bbs =
         reduce m = let (a, b) = unzip $ Map.toList m in id m
             --Map.fromAscList $ zip (map fixRegIndex a) (map fixRegIndex b)
 
-        fixRegIndex r = if not (isReg r) then r else
-            if isRegGroup r
-            then let (h:vals) = getGroupVal r in
-                h ++ "(" ++ intercalate "," (map fixRegIndex vals) ++ ")"
-            else if isSimple r
-                then reverse ((:) '0' $ dropWhile isDigit $ reverse r)
-                else let (a, b, op) =  getOperand r in
-                    fixRegIndex a ++ op ++ fixRegIndex b
-                
 
 commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Map.empty) where
     convert (tac, _, _) = csElim tac [] init_z init_eq
@@ -130,21 +152,6 @@ commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Ma
                     Just  x -> Just $ '*':x
                 else Nothing
             Just  x -> Just x
-
-
-getGroupVal rg = init $ concat $ map (splitOn ")") $ concat $ map (splitOn "(") $ splitOn "," rg
-
-isSimple c = not (isRegGroup c) && case getOperand c of
-    (a, "", "") -> True
-    _           -> False
-
-
-getOperand c =
-    let h = takeWhile (\x -> x `elem` "+-*/~$") c
-        c' = drop (length h) c
-    in case break (\x -> x `elem` "+-*/~") c' of
-        (a, "") -> (h ++ a, "", "")
-        (a, b ) -> (h ++ a, tail b, head b : [])
 
 
 constFolding tac = untilNoChange foldOnce tac where
