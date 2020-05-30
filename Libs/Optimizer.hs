@@ -8,7 +8,6 @@ import Data.List
 import Data.List.Split
 import Data.List.Utils
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 
 
 -- doLocalOptimize :: CFG -> CFG
@@ -32,25 +31,36 @@ globalOptimizeOnAFunction bbs =
         (tac, size) = unzip $ map (toTAC . getCode) bbs
         id = map getId bbs
         entry = map getEntry bbs
+        f inp = map (\x -> (\(a, _, _) -> a) $ commonSubexprElim x Map.empty Map.empty)
+            $ globalDeadCodeElim inp id entry
     in
-        --(commonSubexprElim (head tac) Map.empty Map.empty, globalDeadCodeElim tac id entry)
-        globalDeadCodeElim tac id entry
+        untilNoChange f tac
+        -- globalDeadCodeElim tac id entry
 
 
+globalDeadCodeElim tacs ids entries = untilNoChange (\x -> globalDeadCodeElimOnce x ids entries) tacs
 
-globalDeadCodeElim tacs ids entries =
+globalDeadCodeElimOnce tacs ids entries =
     let
-        liv = buildLiveness (head tacs) (head ids) (head entries) [] id_liv
+        id_liv = Map.insert (last ids) ["%eax"]
+            $ Map.fromList
+            $ zip ids
+            $ replicate (length ids) []
+        liv_final = untilNoChange (buildLiveness (head tacs) (head ids) (head entries) []) id_liv
     in
-        liv
+        (\id -> let tac = getItem id id_tac
+                    liv = tail $ collectLivness tac (getItem id liv_final)
+                in  doElimination tac liv) `map` ids
     where
         id_entry_t = zip ids entries
         id_entry   = Map.fromList id_entry_t
         id_tac     = Map.fromList $ zip ids tacs
-        id_liv     = Map.insert (last ids) ["%eax"]
-            $ Map.fromList
-            $ zip ids
-            $ replicate (length ids) []
+
+        doElimination tac liv = elim tac liv [] where
+            elim (x@(a, b):tr) (l:lr) z = if not $ isReg a then x : (elim tr lr z) else
+                if isLiv a l then x : (elim tr lr z) else elim tr lr z
+            elim [x] _ z = x:z
+            elim _ _ z = z
 
         buildLiveness tac id [] vis id_liv = updateLiv tac id id_liv
 
@@ -72,10 +82,12 @@ globalDeadCodeElim tacs ids entries =
             where
                 updateLiv' id l id_liv =
                     let x = l ++ getItem id id_liv
-                        x' = Set.toList $ Set.fromList x
-                    in Map.insert id x' id_liv
+                    in Map.insert id (rmDupItem x) id_liv
 
         find_upstream id = map fst $ filter (\x -> id `elem` snd x) id_entry_t
+
+        isLiv r liv = let fixed_r = rmRegIndex r in
+            r `elem` liv || fixed_r `elem` liv
 
         collectLivness tac liv = init $ foldr step [liv] tac where
             step x z = (getLivness x (head z)) : z
@@ -258,5 +270,3 @@ toTAC code = toTAC' code [] Map.empty Map.empty where
             getIdx x m = case Map.lookup x m of
                 Nothing -> 0
                 Just  i -> i
-
-

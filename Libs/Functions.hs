@@ -4,6 +4,7 @@ import Data.Char
 import Data.List
 import Data.List.Split
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 
 untilNoChange :: Eq a => (a -> a) -> a -> a
@@ -31,6 +32,7 @@ elemWhere f l = case snd $ break f l of
 removeWhere f l = filter (not . f) l
 removeItem x l = removeWhere (==x) l
 
+rmDupItem l = Set.toList $ Set.fromList l
 
 ----------------------------------------------------------------
 --                functions for registers                     --
@@ -76,4 +78,3 @@ rmRegIndex r = if not (isReg r) then r else
         then reverse $ dropWhile isDigit $ reverse r
         else let (a, b, op) =  getOperand r in
             rmRegIndex a ++ op ++ rmRegIndex b
-
