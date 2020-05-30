@@ -39,6 +39,7 @@ rmDupItem l = Set.toList $ Set.fromList l
 ----------------------------------------------------------------
 isReg c = '%' `elem` c
 
+isConst c = let c' = dropWhile (`elem` "$-") c in c' /= "" && all isDigit c'
 
 isRegGroup c = let c' = dropWhile (`elem` "+-*/") c in
     cntElem "()" c' == 2 && cntElem "+-*/" c' == 0

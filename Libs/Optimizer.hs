@@ -34,7 +34,8 @@ globalOptimizeOnAFunction bbs =
         f inp = map (\x -> (\(a, _, _) -> a) $ commonSubexprElim x Map.empty Map.empty)
             $ globalDeadCodeElim inp id entry
     in
-        untilNoChange f tac
+        -- untilNoChange f tac
+        globalConstCopyPropagation tac id entry
         -- globalDeadCodeElim tac id entry
 
 
@@ -98,19 +99,41 @@ globalDeadCodeElimOnce tacs ids entries =
                 removeWhere (\x -> x == fixed_reg || x == a) l
 
 
-globalCommonSubexprElim bbs =
+globalConstCopyPropagation tacs ids entries =
     let
-        (tac, size) = unzip $ map (toTAC . getCode) bbs
-        id = map getId bbs
-        entry = map getEntry bbs
-        (tac', zs, eqs) = unzip3 $ map (\x -> commonSubexprElim x Map.empty Map.empty) tac
+        id_const_init = Map.fromList $ zip ids (replicate (length ids) [])
+        -- id_const :: Map.Map Int [(String, String)]
+        id_const = findConst (head tacs) (head ids) (head entries) [] id_const_init
     in
-        (map reduce eqs, map reduce zs)
+        -- FIXME -4(%rbp1)1 passed but -4(%rbp0)1 needed
+        map (\id -> let tac = getItem id id_tac
+                        eq  = Map.fromList $ getItem id id_const
+                    in  (\(a, _, _) -> a) $ commonSubexprElim tac eq eq) ids
     where
-        -- TODO select which reg to use: [%eax3, %eax6] -maybe-> [%eax3]
-        -- this can be determined after global dead code elimination
-        reduce m = let (a, b) = unzip $ Map.toList m in id m
-            --Map.fromAscList $ zip (map fixRegIndex a) (map fixRegIndex b)
+        id_entry = Map.fromList $ zip ids entries
+        id_tac   = Map.fromList $ zip ids tacs
+
+        findConst tac id [] _ const = updateConst id tac const
+
+        findConst tac id entry vis const =
+            let (const', _) = foldr step (const, vis) entry where
+                    step x z@(const, vis) = if x `elem` vis then z else
+                        let tac = getItem id id_tac
+                            entry = getItem id id_entry
+                            const' = findConst tac x entry (x:vis) const
+                        in  (const', x:vis)
+            in updateConst id tac const
+
+        updateConst id tac const =
+            let (tac', _, eq) = commonSubexprElim tac Map.empty Map.empty
+                eq' = Map.toList $ Map.fromList $ filter (isConst . snd) $ Map.toList eq
+            in  foldr update const eq'
+            where
+                update (l, r) z = Map.fromList $ foldr step [] (Map.toList z) where
+                    step x@(id, const_l) z = let c = break ((==l) . fst) const_l
+                        in  case snd c of
+                            [] -> (id, (l, r):const_l):z
+                            (a, b):rst -> if b == r then x:z else (id, (++) (fst c) $ (a, ""):rst):z
 
 
 commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Map.empty) where
@@ -156,14 +179,14 @@ commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Ma
                 Just  x -> if isRegGroup x then copyIntoG cs (c:z) else copyIntoG cs (x:z)
             copyIntoG [] z = "(" ++ intercalate "," (reverse z) ++ ")"
 
-    copy a eq = if a == "" || "%rsp" `isPrefixOf` a then Nothing else
-        case Map.lookup a eq of
-            Nothing -> if head a == '*'
-                then case Map.lookup (tail a) eq of
-                    Nothing -> Nothing
-                    Just  x -> Just $ '*':x
-                else Nothing
-            Just  x -> Just x
+            copy a eq = if a == "" || "%rsp" `isPrefixOf` a then Nothing else
+                case Map.lookup a eq of
+                    Nothing -> if head a == '*'
+                        then case Map.lookup (tail a) eq of
+                            Nothing -> Nothing
+                            Just  x -> Just $ '*':x
+                        else Nothing
+                    Just  x -> Just x
 
 
 constFolding tac = untilNoChange foldOnce tac where
