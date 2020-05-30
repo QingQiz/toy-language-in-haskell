@@ -41,7 +41,7 @@
 <expr>       ::= <bool_expr>
 <bool_expr>  ::= <cmp_expr> { <bool_op> <cmp_expr> }
 <cmp_expr>   ::= <arith_expr> <cmp_op> <arith_expr>
-<arith_expr> ::= [ + | - ] <factor> {<add_op> <factor>}
+<arith_expr> ::= <factor> {<add_op> <factor>}
 <factor>     ::= <unary_expr> {<mul_op> <unary_expr>}
 <unary_expr> ::= { ! | - } <term>
 <term>       ::= <id> | <idnetifier> \[ <expr> \] | <integer> | <char> | <func_call> | \(<expr>\)
@@ -89,13 +89,15 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o 
 
 - [ ] Optimization
   - [x] Arithmetic simplification
-    - [x] Constant folding
+    - [x] Constant Folding
     - [x] Unary operation (Neg, Not)
-    - [x] Binary operation (+,-,*,/,>,<,>=,<=,==,!=,&&,||)
-  - [ ] CFG
-  - [ ] Common subexpression elimination
-  - [ ] Copy propagation
-  - [ ] Dead code elimination
+    - [x] Binary operation (+,-,\*,/,>,<,>=,<=,==,!=,&&,||)
+  - [ ] Tail-call Optimization
+  - [x] Local Common Subexpression Elimination
+    - [x] Constant Folding
+  - [x] Local Copy Propagation
+  - [ ] Global Copy Propagation
+  - [x] Golbal Dead Code Elimination
   - [ ] Peephole optimization
-  - [ ] Register reallocation
+  - [x] Register allocation (Linear Scan)
 
