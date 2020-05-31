@@ -34,6 +34,10 @@ removeItem x l = removeWhere (==x) l
 
 rmDupItem l = Set.toList $ Set.fromList l
 
+fst' (a, _, _) = a
+snd' (_, b, _) = b
+trd' (_, _, c) = c
+
 ----------------------------------------------------------------
 --                functions for registers                     --
 ----------------------------------------------------------------
