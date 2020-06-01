@@ -12,7 +12,10 @@ untilNoChange f x = until_no_change' f (f x) x where
     until_no_change' f x x' = if x == x' then x else until_no_change' f (f x) x
 
 
+conn_cmd  cmd     = ['\t':cmd]
+conn_lab  lab     = [lab ++ ":"]
 conn_inst cmd l r = ["\t" ++ cmd ++ "\t" ++ l ++ ", " ++ r]
+conn_inst_s cmd a = ["\t" ++ cmd ++ "\t" ++ a]
 
 cnt c = foldl (\z x -> if x == c then z + 1 else z) 0
 cntElem c = foldl (\z x -> if x `elem` c then z + 1 else z) 0
