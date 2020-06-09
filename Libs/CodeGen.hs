@@ -70,10 +70,10 @@ cAFuncDef (FuncDef ft _ (Identifier _ fn) pl fb) rgt =
 
 cComdStmt :: Ast -> RegTable -> ([String], Int) -- Int: stack size needed
 cComdStmt (ComdStmt _ [] vd sl) rgt =
-    let (var, siz) = cLocalVar vd rgt in (fst $ cStmtList sl var, siz)
+    let (clr, var, siz) = cLocalVar vd rgt in ((++) clr $ fst $ cStmtList sl var, siz)
 
 
-cLocalVar :: [Ast] -> RegTable -> (RegTable, Int) -- Int: stack size
+cLocalVar :: [Ast] -> RegTable -> ([String], RegTable, Int) -- Int: stack size
 cLocalVar vds rgt =
     let
         offset :: [Int]
@@ -87,8 +87,11 @@ cLocalVar vds rgt =
 
         int_rgt = for_siz 4 int_var (if null offset then 0 else minimum offset) []
         chr_rgt = for_siz 1 chr_var (fst int_rgt) []
+
+        regs = fst . unzip . snd . unzip . Map.toList . snd
+        clr_var = concat $ map (conn_inst "movl" "$0") $ (regs int_rgt) ++ (regs chr_rgt)
     in
-        (Map.union (Map.union (snd int_rgt) (snd chr_rgt)) rgt, (abs $ fst chr_rgt - 15) `div` 16 * 16)
+        (clr_var, Map.union (Map.union (snd int_rgt) (snd chr_rgt)) rgt, (abs $ fst chr_rgt - 15) `div` 16 * 16)
     where
         is_int (VarDef TInt _ _)  = True
         is_int (VarDef TChar _ _) = False
@@ -275,9 +278,12 @@ cAStmt (FuncCall _ (Identifier _ fn) pl) rgt =
         (inst_calc, rgt') = foldl step_t ([], rgt) pl -- calculate all params and push then into stack
         inst_popv = foldr step_h [] reg_l             -- pop first 6 params
     in
-        (inst_calc ++ inst_popv ++
-         [clr_reg "%eax", "\tcall\t" ++ fn] ++
-         (if null params_t then [] else ["\taddq\t$" ++ show (8 * length params_t) ++ ", %rsp"]) -- release mem
+        ([]
+         ++ inst_calc
+         ++ inst_popv
+         ++ [clr_reg "%eax"]
+         ++ conn_inst_s "call" (fn ++ "#" ++ (show $ length inst_popv))
+         ++ (if null params_t then [] else ["\taddq\t$" ++ show (8 * length params_t) ++ ", %rsp"]) -- release mem
         , rgt')
     where
         step_t (z, rgtx) x = case x of
