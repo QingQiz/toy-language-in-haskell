@@ -96,8 +96,8 @@ ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o 
   - [x] Local Common Subexpression Elimination
     - [x] Constant Folding
   - [x] Local Copy Propagation
-  - [ ] Global Copy Propagation
+  - [x] Global Copy Propagation
   - [x] Golbal Dead Code Elimination
-  - [ ] Peephole optimization
   - [x] Register allocation (Linear Scan)
+  - [ ] Peephole optimization
 
