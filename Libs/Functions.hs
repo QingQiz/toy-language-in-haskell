@@ -41,6 +41,16 @@ fst' (a, _, _) = a
 snd' (_, b, _) = b
 trd' (_, _, c) = c
 
+
+splitAt3 a b l =
+    let rt = splitAt b l
+        r = snd rt
+        m = splitAt a (fst rt)
+    in  (fst m, snd m, r)
+
+mergeInto Nothing l = l
+mergeInto (Just x) l = x : l
+
 ----------------------------------------------------------------
 --                functions for registers                     --
 ----------------------------------------------------------------
@@ -49,7 +59,7 @@ isReg c = '%' `elem` c
 isConst c = let c' = dropWhile (`elem` "$-") c in c' /= "" && all isDigit c'
 
 isRegGroup c = let c' = dropWhile (`elem` "+-*/") c in
-    cntElem "()" c' == 2 && cntElem "+-*/" c' == 0
+    cntElem "()" c' == 2 && cntElem "+-*/~" c' == 0
 
 
 isSimple c = not (isRegGroup c) && case getOperand c of
@@ -57,7 +67,7 @@ isSimple c = not (isRegGroup c) && case getOperand c of
     _           -> False
 
 
-getGroupVal rg = init $ concat $ map (splitOn ")") $ concat $ map (splitOn "(") $ splitOn "," rg
+getGroupVal = init . concat . map (splitOn ")") . concat . map (splitOn "(") . splitOn ","
 
 
 getRegs x = if not (isReg x) then [] else
@@ -76,6 +86,10 @@ getOperand c =
     in case break (\x -> x `elem` "+-*/~") c' of
         (a, "") -> (h ++ a, "", "")
         (a, b ) -> (h ++ a, tail b, head b : [])
+
+
+getRegIndex :: String -> String
+getRegIndex = reverse . takeWhile isDigit . reverse
 
 
 rmRegIndex r = if not (isReg r) then r else
