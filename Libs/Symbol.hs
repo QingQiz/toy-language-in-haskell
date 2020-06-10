@@ -15,7 +15,7 @@ data Symbol = SReserveSymbol
             | SFunction SType [SType]
             deriving (Show)
 
-data SType = SInt | SChar | SVoid  deriving (Show)
+data SType = SInt | SChar | SVoid  deriving (Show, Eq)
 
 type SSize = Int
 
@@ -27,4 +27,3 @@ empty_st = fromList [
     ("printf", SReserveSymbol), ("scanf",    SReserveSymbol),
     ("const",  SReserveSymbol), ("char",     SReserveSymbol), ("int",   SReserveSymbol),
     ("void",   SReserveSymbol), ("return",   SReserveSymbol)]
-

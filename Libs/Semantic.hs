@@ -239,12 +239,34 @@ semaFormatStr a = Just a
 
 
 semaExpr :: Ast -> String -> SymbolTable -> Maybe Ast
-semaExpr (BinNode o p l r) sc st = toExpr o (semaExpr l sc st) (semaExpr r sc st)
+semaExpr (BinNode o p l r) sc st =
+    let
+        type_l = findType l
+        type_r = findType r
+    in
+        if fst type_l /= fst type_r
+        then putSemaError sc (snd type_l) "Type mismatch for: " (show $ fst type_l)
+        else toExpr o (semaExpr l sc st) (semaExpr r sc st)
     where
         toExpr o a b = case (a, b) of
             (Nothing, _)     -> Nothing
             (_, Nothing)     -> Nothing
             (Just a, Just b) -> Just $ simplify $ pBin o a b
+
+        findType (BinNode _ _ l r) = findType l
+        findType (Identifier p n)  = case Map.lookup n st of
+            Just (SVariable SInt)  -> (SInt,  p)
+            Just (SVariable SChar) -> (SChar, p)
+            _                      -> (SInt,  p)
+        findType (UnaryNode _ _ e) = findType e
+        findType (FuncCall _ (Identifier p fn) _) = case Map.lookup fn st of
+            Just (SFunction SInt _)  -> (SInt,  p)
+            Just (SFunction SChar _) -> (SChar,  p)
+            _                        -> (SInt,  p)
+        findType (Number p _) = (SInt, p)
+        findType (Ch p _) = (SChar, p)
+        findType _ = (SInt, (0, 0))
+
 
 
 semaExpr (UnaryNode o _ e) sc st =
@@ -283,12 +305,12 @@ semaExpr Empty _ _ = Just Empty
 
 semaType :: Type -> SType
 semaType TInt  = SInt
-semaType TChar = SChar
+semaType TChar = SInt
 
 
 semaFType :: FunType -> SType
 semaFType FInt  = SInt
-semaFType FChar = SChar
+semaFType FChar = SInt
 semaFType FVoid = SVoid
 
 
@@ -308,4 +330,3 @@ a </> b = case b of
     Just xs -> case a of
         Nothing -> Nothing
         Just  x -> Just (x:xs)
-
