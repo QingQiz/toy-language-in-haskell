@@ -64,7 +64,7 @@ cAFuncDef (FuncDef ft _ (Identifier _ fn) pl fb) rgt =
         for_pl pls =
             let pl = get_param_reg pls
                 si = unzip $ map (\(_,(_,c))->case c of 4->(1,"movl"); 1->(3,"movb")) pl
-                reg = map (\inp->(registers!!inp)!!(fst si!!(inp-1))) [1..6]
+                reg = map (\inp->(registers!!inp)!!(fst si!!(inp-2))) [2..7]
             in map (\(a,b,c)->"\t" ++ a ++ "\t" ++ b ++ ", " ++ c) $ zip3 (snd si) reg $ map (\(_,(b,_))->b) pl
 
 
@@ -274,7 +274,7 @@ cAStmt (Ret _ e) rgt =
 cAStmt (FuncCall _ (Identifier _ fn) pl) rgt =
     let
         (params_h, params_t) = splitAt 6 pl
-        reg_l = zip (tail $ map (!!1) registers) params_h
+        reg_l = zip (tail $ tail $ map (!!1) registers) params_h
         (inst_calc, rgt') = foldl step_t ([], rgt) pl -- calculate all params and push then into stack
         inst_popv = foldr step_h [] reg_l             -- pop first 6 params
     in

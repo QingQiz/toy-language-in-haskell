@@ -6,6 +6,7 @@ import Data.Map as Map hiding (map)
 registers :: [[String]]
 registers = [
     ["%rax", "%eax",  "%ax",  "%al"],
+    ["%rbx", "%ebx",  "%bx",  "%bl"],
     ["%rdi", "%edi",  "%di", "%dil"],
     ["%rsi", "%esi",  "%si", "%sil"],
     ["%rdx", "%edx",  "%dx",  "%dl"],
@@ -46,4 +47,3 @@ get_end_label rgt = case Map.lookup ".label" rgt of
 update_label rgt = case Map.lookup ".label" rgt of
     Just (n, i) -> Map.insert ".label" (n, i + 1) rgt
     _ -> rgt
-
