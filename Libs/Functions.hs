@@ -100,3 +100,6 @@ rmRegIndex r = if not (isReg r) then r else
         then reverse $ dropWhile isDigit $ reverse r
         else let (a, b, op) =  getOperand r in
             rmRegIndex a ++ op ++ rmRegIndex b
+
+
+first f x = head' $ snd $ break f x where head' (x:xs) = x

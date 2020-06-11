@@ -16,9 +16,8 @@ doGlobalOptimize cfg =
         (ids, bbs_org) = unzip $ Map.toList $ getBasicBlocks cfg
         fs = splitWithFunction bbs_org
     in
-        -- concat $ concat $ map globalOptimizeOnAFunction fs
-        map globalOptimizeOnAFunction fs
-        -- globalOptimizeOnAFunction $ head fs
+        (++) (getHeader cfg) $ concat $ map globalOptimizeOnAFunction fs
+        -- map globalOptimizeOnAFunction fs
     where
         splitWithFunction bbs = foldr step [] bbs where
             step b z@(x:xs) = case getEntry b of
@@ -29,13 +28,13 @@ doGlobalOptimize cfg =
 
 globalOptimizeOnAFunction bbs =
     let
-        (tacs, size)  =  unzip $ map (toTAC . getCode) bbs
-        size'         = foldr (\x z -> Map.union x z) Map.empty size
+        tacs          = map (toTAC . getCode) bbs
         ids           = map getId bbs
         entries       = map getEntry bbs
         optimized_tac = untilNoChange (\x -> optimizeOnce x ids entries) tacs
     in
-        fromTAC optimized_tac ids entries size'
+        -- error $ show tacs
+        fromTAC optimized_tac ids entries
     where
         optimizeOnce tacs ids entries =
             let dead_code = globalDeadCodeElim tacs ids entries
@@ -57,24 +56,34 @@ globalDeadCodeElimOnce tacs ids entries =
     where
         id_tac = Map.fromList $ zip ids tacs
         doElimination tac liv = elim tac liv where
-            elim (x@(a, b):tr) (l:lr) = if not $ isReg a then x : (elim tr lr) else
-                if isLiv a l then x : (elim tr lr) else elim tr lr
+            elim (x@(a, b):tr) (l:lr)
+                | isReg a = if isLiv a l then x : (elim tr lr) else elim tr lr
+                | a == "cltd" || a == "cltq" = if isLiv' "%eax" l then x : (elim tr lr) else elim tr lr
+                | otherwise = x : (elim tr lr)
             elim _ _ = []
 
-        isLiv r liv = let fixed_r = rmRegIndex r in
+        isLiv r liv  = let fixed_r = rmRegIndex r in
             r `elem` liv || fixed_r `elem` liv
+        isLiv' r liv = r `elem` (map rmRegIndex liv)
 
 
 livnessAnalysis tacs ids entries =
     let
-        g_vars = filter (\x -> head x /= '%' && "rip" `isInfixOf` x)
+        g_vars = filter (\x -> "rip" `isInfixOf` x)
             $ concat
             $ map (\(a, b) -> getRegs a ++ getRegs b)
             $ concat tacs
-        id_liv = Map.insert (last ids) (["%eax", "%rsp", "%rbp"] ++ g_vars)
+        id_liv = (\inp -> Map.insert (last ids) (getItem (last ids) inp ++ ["%eax", "%rsp", "%rbp"] ++ g_vars) inp)
             $ Map.fromList
-            $ zip ids
+            $ zipWith findGV ids
             $ replicate (length ids) []
+
+        findGV id _ = (id, findGVar (getItem id id_tac)) where
+            findGVar ((a, b):ts)
+                | "ebx" `isInfixOf` a && "rip" `isInfixOf` b && head b /= '*' =
+                      ("*(%ebx)") : findGVar ts
+                | otherwise = findGVar ts
+            findGVar _ = []
     in
         untilNoChange (buildLiveness (head tacs) (head ids) (head entries) []) id_liv
     where
@@ -115,8 +124,13 @@ collectLivness tac liv = foldr step [liv] tac where
         | "set" `isPrefixOf` a = specialRemove b init
         | a == "pushq"         = getRegs b ++ init
         | a == "call"          = let n =  (+) 1 $ read $ last $ splitOn "#" b
-                                 in  (take n $ map (!!1) registers) ++ init
-        | otherwise            = getRegs b ++ specialRemove a init
+                                 in  "%eax" : (take n $ tail $ tail $ map (!!1) registers) ++ init
+        | a == "cltd"          = "%eax" : init
+        | a == "cltq"          = "%eax" : init
+        | otherwise            = (if isRegGroup a then tail $ getGroupVal a else [])
+                                 ++ (if head a == '*' then getRegs $ tail a else [])
+                                 ++ getRegs b
+                                 ++ specialRemove a init
 
     specialRemove a l = let fixed_reg = rmRegIndex a in
         removeWhere (\x -> x == fixed_reg || x == a) l
@@ -125,7 +139,7 @@ collectLivness tac liv = foldr step [liv] tac where
 fixRegIndexInLiv tac liv =
     let m_init = Map.fromList $ zip regs [0,0..]
         regs   = (["%rsp", "%rbp"] ++ map (!!1) registers)
-    in  (\(h:t) -> (map rmRegIndex h) : t) $ fixLiv' (("",""):tac) liv m_init
+    in  fixLiv' (("",""):tac) liv m_init
     where
         fixLiv' (t:tac) (l:liv) m =
             let (l', m') = foldr step ([], m) (rmDupItem l)
@@ -280,36 +294,28 @@ constFolding tac = untilNoChange foldOnce tac where
                 _ -> error $ show (j, l)
 
 
-toTAC code = toTAC' code [] Map.empty Map.empty where
-    toTAC' (c:cs) res m t
-        | isCommd "movl" c = let x = trans c "=" m in toTAC' cs (fst x:res) (snd x) (updateT c 4 t)
-        | isCommd "movb" c = let x = trans c "=" m in toTAC' cs (fst x:res) (snd x) (updateT c 1 t)
-        | isCommd "mov"  c = let x = trans c "=" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "add"  c = let x = trans c "+" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "sub"  c = let x = trans c "-" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "imul" c = let x = trans c "*" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "idiv" c = let x = trans c "/" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "push" c = let x = trans c "c" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "set"  c = let x = trans c "c" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "call" c = let x = trans c "c" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "cmp"  c = let x = trans c "~" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "leaq" c = let x = trans c "l" m in toTAC' cs (fst x:res) (snd x) t
-        | isCommd "j"    c = let x = trans c "j" m in toTAC' cs (fst x:res) (snd x) t
+toTAC code = toTAC' code [] Map.empty where
+    toTAC' (c:cs) res m
+        | isCommd "mov"  c = f "="
+        | isCommd "add"  c = f "+"
+        | isCommd "sub"  c = f "-"
+        | isCommd "imul" c = f "*"
+        | isCommd "idiv" c = f "/"
+        | isCommd "push" c = f "c"
+        | isCommd "set"  c = f "c"
+        | isCommd "call" c = f "c"
+        | isCommd "cmp"  c = f "~"
+        | isCommd "leaq" c = f "l"
+        | isCommd "j"    c = f "j"
         | isCommd "pop"  c =
-            let
-                (tgt, res') = findNearestPush res
-                tgt' = if head tgt == '*' then tail tgt else tgt
-                c' = head $ conn_inst "movl" tgt' (getCommdTarget c)
-                x  = trans c' "=" m
-            in toTAC' cs (fst x:res') (snd x) t
-        | head c /= '\t'   = toTAC' cs ((c, ""):res) m t
-        | otherwise        = let x = trans (dropWhile (=='\t') c) "" m in toTAC' cs (fst x:res) (snd x) t
-    toTAC' [] res _ t = (reverse res, t)
-
-    updateT c n t = let (_, tgt) = getOperand c in
-        if "%rbp" `isInfixOf` tgt
-        then Map.insert ('*' : tgt) n t
-        else t
+            let (tgt, res') = findNearestPush res
+                c' = head $ conn_inst "movl" tgt (getCommdTarget c)
+                x  = (\((a , b), c) -> ((a, tgt), c)) $ trans c' "=" m
+            in toTAC' cs (fst x:res') (snd x)
+        | head c /= '\t'  = toTAC' cs ((c, ""):res) m
+        | otherwise       = let x = trans (dropWhile (=='\t') c) "" m in toTAC' cs (fst x:res) (snd x)
+        where f o = let x = trans c o m in toTAC' cs (fst x:res) (snd x)
+    toTAC' [] res _ = reverse res
 
     getOperand c = (a, b) where
         (a, b) = case splitOn ", " $ last $ splitOn "\t" c of
@@ -325,32 +331,32 @@ toTAC code = toTAC' code [] Map.empty Map.empty where
     findNearestPush res = let (a, b) = break (isCommd "push" . fst) res in
         (snd $ head b, a ++ tail b)
 
-    trans c op m = let (a, b) = getOperand c in case op of
-        ""  -> ((c, ""), m)
-        "c" -> let (cmd, tgt) = (getCommd c, getCommdTarget c) in
-            ((cmd, fixl tgt), m)
-        "=" -> let r = fixr b in ((fst r, fixl a), snd r)
-        "l" -> let r = fixr b in ((fst r, tail $ fixRegG a), snd r)
-        "/" -> let r = fixr b ; b = "%eax" in
-            ((fst r, fixl b ++ op ++ fixl a), snd r)
-        "~" -> (("cmp", fixl b ++ op ++ fixl a), m)
-        "j" -> ((getCommd c, getCommdTarget c), m)
-        _   -> let r = fixr b in
-            ((fst r, fixl b ++ op ++ fixl a), snd r)
+    trans c op m =
+        let (a, b) = getOperand c
+        in  case op of
+            ""  -> ((c, ""), m)
+            "c" -> let (cmd, tgt) = (getCommd c, getCommdTarget c) in
+                ((cmd, fixl tgt), m)
+            "=" -> let r = fixr b in ((fst r, fixl a), snd r)
+            "l" -> let r = fixr b in ((fst r, tail $ fixl a), snd r)
+            "/" -> let r = fixr b ; b = "%eax" in
+                ((fst r, fixl b ++ op ++ fixl a), snd r)
+            "~" -> (("cmp", fixl b ++ op ++ fixl a), m)
+            "j" -> ((getCommd c, getCommdTarget c), m)
+            _   -> let r = fixr b in
+                ((fst r, fixl b ++ op ++ fixl a), snd r)
         where
-            fixRegG rg = let x = getGroupVal rg in
+            fixRegG rg = let (h:v) = getGroupVal rg in
                 if isRegGroup rg
-                then head x ++ "(" ++ intercalate "," (map fixl $ tail x) ++ ")"
+                then h ++ "(" ++ intercalate "," (map fixl v) ++ ")"
                 else rg
 
-            fixReg r = if r `elem` concat registers
-                then let i = get_reg_index r in
-                    i !! 1
-                else r
+            fixReg r | r `elem` concat registers = let i = get_reg_index r in i !! 1
+                     | otherwise = r
             fixl xi = let x = fixRegG $ fixReg xi in
                 if isReg x
-                then let idx = getIdx x m in
-                    (if isRegGroup x then "*" else "") ++ x ++ show idx
+                then let idx = getIdx x m
+                      in  (if isRegGroup x then "*" else "") ++ x ++ show idx
                 else x
             fixr xi = let x = fixRegG $ fixReg xi in
                 if isReg x
@@ -363,16 +369,19 @@ toTAC code = toTAC' code [] Map.empty Map.empty where
                 Just  i -> i
 
 
-registerRealloca tacs ids entries size =
+registerRealloca tacs ids entries =
     let
         id_liv_final = livnessAnalysis tacs ids entries
         liv          = (\id -> let tac = getItem id id_tac
                                    liv = collectLivness tac (getItem id id_liv_final)
                                in  fixRegIndexInLiv tac liv) `map` ids
-        (liv', tac') = unpack $ zipWith3 fix ids liv tacs where
+        (liv', tac', params) = unpack $ zipWith3 fix ids liv tacs where
             unpack x = let (a, b) = unzip x
                            a'     = concat $ map tail a
-                       in  (map rmDupItem $ fixLocal a', concat b)
+                           a''    = head $ map rmDupItem $ fixLocal $ concat a
+                       in  (a'' : (map rmDupItem $ fixLocal a'), concat b, first a)
+
+            first (l:ls) = if null l then first ls else head l
 
             fix id l t = (map (map doFix) l, map (\(a, b) -> (doFix a, doFix b)) t)
                 where
@@ -386,8 +395,7 @@ registerRealloca tacs ids entries size =
                                               else rmRegIndex r ++ show id ++ "0" ++ getRegIndex r
                             | otherwise     = let (a, b, op) = getOperand r in doFix a ++ op ++ doFix b
         alloc_init =
-            let params    = head $ concat liv
-                func_call = findReg $ findIdx tac' 0 where
+            let func_call = findReg $ findIdx tac' 0 where
                     findIdx ((a, b):t) n
                         | a == "call" = let x = read $ last $ splitOn "#" b
                                         in  map (n-) [1..(x+1)] ++ findIdx t (n + 1)
@@ -405,59 +413,80 @@ registerRealloca tacs ids entries size =
                     findReg (i:is) = let (a, _) = tac' !! i in
                         if "eax" `isInfixOf` a then a : findReg is else findReg is
                     findReg [] = []
+                div       = findReg $ findIdx tac' 0 where
+                    findIdx ((a, b):t) n
+                        | a == "cltd" = (:) (n - 1) $ findIdx t (n + 1)
+                        | otherwise   = findIdx t (n + 1)
+                    findIdx [] _ = []
+                    findReg (i:is) = let (a, _) = tac' !! i in
+                        if "eax" `isInfixOf` a then a : findReg is else findReg is
+                    findReg [] = []
                 g_vars    = filter (\x -> "rip" `isInfixOf` x)
                             $ concat
                             $ map (\(a, b) -> getRegs a ++ getRegs b) tac'
                 final     = params ++ func_call ++ ret_val ++ g_vars
             in  Map.fromList $ zip final $ map rmRegIndex final
     in
-        -- alloc_init
-        (func tac' liv' alloc_init [] [] [])
+        (func tac' liv' (tail liv') alloc_init [] [] [])
     where
         id_entry = Map.fromList $ zip ids entries
         id_tac   = Map.fromList $ zip ids tacs
         reg_all  = map (!!1) registers
 
-        func (t:tac) (l:liv) alloc tac' spin spout =
-            let (t', alloc', spin', spout') = allocaAStep t l alloc
-            in  func tac liv alloc' (t':tac') (spin' : spin) (spout' : spout)
-        func _ _ _ tac spin spout = (reverse tac, reverse spin, reverse spout)
+        func (t:tac) (l_up:liv_up) (l_down:liv_down) alloc tac' spin spout =
+            let (t', alloc', spin', spout') = allocaAStep t l_up l_down alloc
+            in  func tac liv_up liv_down alloc' (t':tac') (spin' : spin) (spout' : spout)
+        func _ _ _ _ tac spin spout = (reverse tac, reverse spin, reverse spout)
 
-        allocaAStep t l alloc =
+        allocaAStep t@(tl, tr) l_up l_down alloc =
             let
-                (alloc', spout) = foldr allocOne (alloc, []) l
+                regl = getRegs tl
+                regr = getRegs tr
+                -- (t' , a' , si , so ) = allocaAStep' t  (filter (\x -> x `elem` regl) l_down) l_up   alloc
+                -- (t'', a'', si', so') = allocaAStep' t' (filter (\x -> x `elem` regr) l_down) l_down a'
+            in
+                allocaAStep' t l_down l_down alloc
+                --- XXX return a * 5 + b -> mul 5 a, add a b, ret b
+                ---     current             mov a b, mul 5 b, add b c, ret c
+                -- (t'', a'', si ++ si', so ++ so')
+
+        allocaAStep' t rs l alloc =
+            let
+                (alloc', spout) = foldr allocOne (alloc, []) rs
                 (t', alloc'', spin, spout') = replaceRegWihtAlloca t alloc'
             in
-                (t', alloc'', spin, spout ++ spout')
+                (t', alloc'', spin, spout' ++ spout)
             where
                 allocOne r (alloc, spout) =
                     let (alloc', spout') = tryAlloc r alloc
                     in  (alloc', mergeInto spout' spout)
 
-                -- return: (new alloc, register to spill out)
+                -- tryAlloc :: register -> alloc -> (alloc, register to spill out)
                 tryAlloc r alloc  =
                     let valid     = filter (\(a, b) -> a `elem` l) $ Map.toList alloc
-                        -- alloc'    = Map.fromList valid
-                        alloc'    = alloc
                         reg_using = map snd valid
                         regs      = filter (\x -> x `notElem` reg_using) reg_all
-                    in  case Map.lookup r alloc' of
+                    in  case Map.lookup r alloc of
                             Nothing
                                 | isRegGroup r && not ("rbp" `isInfixOf` r) ->
                                       let (_:v:[]) = getGroupVal r
-                                      in  tryAlloc v alloc'
-                                | otherwise -> doAlloca r regs alloc'
-                            Just  x -> (alloc', Nothing)
+                                      in  tryAlloc v alloc
+                                | otherwise -> doAlloca r regs alloc
+                            Just  x -> (alloc, Nothing)
                     where
                         doAlloca r regs alloc
                             | null regs =
-                                  let reg_in_use = getRegs (fst t) ++ getRegs (snd t)
+                                  let reg_in_use = regh ++ regt
                                       (alloc', spout) = spillOut reg_in_use alloc
                                       (alloc'', _) = tryAlloc r alloc'
-                                  in  if r `elem` reg_in_use
-                                      then (alloc'', Just spout)
-                                      else (alloc, Nothing)  -- won't alloca a register if r is not used immediatly
-                            | otherwise = (Map.insert r (head regs) alloc, Nothing)
+                                  in  (alloc'', Just spout)
+                            | r `elem` regh = case filter (\x -> x `elem` regt) regs of
+                                  []   -> deft
+                                  ri   -> (Map.insert r (head ri  ) alloc, Nothing)
+                            | otherwise = deft
+                            where regh  = getRegs (fst t)
+                                  regt  = getRegs (snd t)
+                                  deft  = (Map.insert r (head regs) alloc, Nothing)
 
                 -- return (alloc', spill_out)
                 spillOut regs alloc =
@@ -481,7 +510,6 @@ registerRealloca tacs ids entries size =
                         (alloc'', spout) = tryAlloc r alloc'
                         spin             = (getItem r alloc, getItem r alloc'')
                     in  (alloc'', spin, spout)
-
                 replaceRegWihtAlloca t@(a, b) alloc =
                     let regs = getRegs a ++ getRegs b
                     in  foldr step (t, alloc, [], []) regs
@@ -499,9 +527,10 @@ registerRealloca tacs ids entries size =
                                           let (alloc', spin@(_, reg'), spout) = spillIn reg alloc
                                               tac' = (replace reg reg' a, replace reg reg' b)
                                           in  (tac', alloc', Just spin, spout)
-                                    | otherwise -> -- FIXME size information lost
+                                    | otherwise ->
                                           let tac' = (replace reg x a, replace reg x b)
                                           in  (tac', alloc, Nothing, Nothing)
+
 
         -- > fixLocal [["%eax1"], ["%eax2"], ["%eax1"]] == [["%eax1"], ["%eax1", "%eax2"], ["%eax1"]]
         fixLocal liv =
@@ -524,25 +553,42 @@ registerRealloca tacs ids entries size =
                                      l ++ (map (x:) m) ++ r
                                  else liv
 
-fromTAC tacs ids entries size = registerRealloca tacs ids entries size
-    -- let
-    --     tac_t = [("%eax2", "$5"), ("%eax3", "$6"), ("%ebx1", "%eax2"), ("%eax4", "%eax3+%ebx1")]
+fromTAC tacs ids entries =
+    let
+        (tac', spin, spout) = registerRealloca tacs ids entries
+    in
+        -- tacs
+        doTrans tac'
+        -- registerRealloca tacs ids entries
+    where
+        doTrans (t:ts) = trans t ++ doTrans ts
+        doTrans _ = []
 
-    -- in
-    --     -- fixRegReference tac
-    -- where
-    --     fixRegReference tac = undefined
+        trans t@(a, b)
+            | isLabel a = a : []
+            | isCmd a && null b = conn1 a : []
+            | isCmd a = case getOperand b of
+                  (x, [], []) -> conn2 a b : []
+                  (x, y, o)   -> conn3 (getCmd o) x y : []
+            | otherwise = case getOperand b of
+                  (x, [], []) | head x == '*' -> conn3 "movl" (tail x) a : []
+                              | head a == '*' -> conn3 "movl" x (tail a) : []
+                              | isRegGroup x || isRegGroup a -> conn3 "leaq" x a : []
+                              | otherwise     -> conn3 "movl" x a : []
+                  (x, y, o) | o == "/"  -> conn2 "idivl" y : []
+                            | x == a    -> conn3 (getCmd o) y a : []
+                            | y == a && (o == "*" || o == "+") -> conn3 (getCmd o) x a : []
+                            | otherwise -> conn3 "movl" x a : conn3 (getCmd o) y a : []
 
-    --     checkReference c tac = break (\x -> c `elem` snd x) tac
+        getCmd op = case op of
+            "+" -> "addl"
+            "-" -> "subl"
+            "*" -> "imull"
+            "/" -> "idivl"
+            "~" -> "cmpl"
+        isCmd = not . isReg
+        isLabel = elem ':'
 
-
-
-    -- trans tac size where
-    -- trans ((l, r):cs) size
-    --     | last l == ':'            = (:) l $ trans cs size
-    --     | r == "" && not (isReg l) = (:) ("\t" ++ l) $ trans cs size
-    --     | r /= "" && not (isReg l) = (:) (case getOperand r of
-    --           (a, "", "") ->
-    --           (a, b , _ ) ->
-    --     | otherwise = (:) (l++r) (trans cs size)
-    -- trans [] size = []
+        conn1 a     = "\t" ++ a
+        conn2 a b   = "\t" ++ a ++ "\t" ++ b
+        conn3 a b c = "\t" ++ a ++ "\t" ++ b ++ ", " ++ c
