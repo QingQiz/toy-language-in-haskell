@@ -244,7 +244,7 @@ semaExpr (BinNode o p l r) sc st =
         type_l = findType l
         type_r = findType r
     in
-        if fst type_l /= fst type_r
+        if False --fst type_l /= fst type_r
         then putSemaError sc (snd type_l) "Type mismatch for: " (show $ fst type_l)
         else toExpr o (semaExpr l sc st) (semaExpr r sc st)
     where
@@ -265,7 +265,8 @@ semaExpr (BinNode o p l r) sc st =
             _                        -> (SInt,  p)
         findType (Number p _) = (SInt, p)
         findType (Ch p _) = (SChar, p)
-        findType _ = (SInt, (0, 0))
+        findType (Array _ id _) = findType id
+        findType _ = (SInt, (1, 1))
 
 
 
@@ -305,12 +306,12 @@ semaExpr Empty _ _ = Just Empty
 
 semaType :: Type -> SType
 semaType TInt  = SInt
-semaType TChar = SInt
+semaType TChar = SChar
 
 
 semaFType :: FunType -> SType
 semaFType FInt  = SInt
-semaFType FChar = SInt
+semaFType FChar = SChar
 semaFType FVoid = SVoid
 
 
