@@ -8,10 +8,10 @@ int main() {
     a = 1;
     a_ = a + 1;
 
-    printf("a = %d, a_ = %d\n", a, a_);
+    printf("a = %lld, a_ = %lld\n", a, a_);
 
-    b = a + 'a';
-    b_ = a_ + 'A';
+    b = 'a';
+    b_ = b + 'A';
 
     printf("b = '%c', b_ = '%c'\n", b, b_);
 }

@@ -1,0 +1,38 @@
+int a[1000];
+
+void qsort(int l,int r,int n){
+  int i,j, key;
+  i = l;
+  j = r;
+  key = a[l];
+  for ( ; i < j ; ) {
+    for (;i<j && a[j]>=key;){
+      j = j -1;
+    }
+    if (i<j){
+      a[i]=a[j];
+      i = i + 1;
+    }
+    for (;i<j&&a[i]<key;){
+        i = i + 1;
+    }
+    if (i<j){
+      a[j]=a[i];
+      j = j - 1;
+    }
+    a[i]=key;
+    if (i-1>l)qsort(l,i-1,n);
+    if(i+1<r)qsort(i+1,r,n);
+  }
+}
+
+int main() {
+  int n, i, x;
+  scanf(n);
+  for (i=0;i<n;i=i+1) {scanf(x); a[i] = x;}
+  qsort(0,n-1,n);
+  for (i=0;i<n;i=i+1) printf("%d ", a[i]);
+  printf("\n");
+  return 0;
+}
+
