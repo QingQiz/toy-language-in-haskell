@@ -16,7 +16,7 @@ cProgram :: Ast -> [String]
 cProgram (Program _ _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fds)
     where
         bind (a, b) c = bind' a (c b)
-        bind' a (b, c) = [a ++ c, b]
+        bind' a (b, c, d) = [a ++ c ++ d, b]
 
 
 cGlobalVarDef :: [Ast] -> ([String], RegTable)
@@ -34,26 +34,36 @@ cGlobalVarDef defs = foldr step ([], empty_rgt) defs where
     step' s (Array _ (Identifier _ i) (Number _ n)) (l, rgt) =
         (("\t.comm\t" ++ i ++ "," ++ show (n * 8)) : l, Map.insert i (i ++ "(%rip)", s) rgt)
 
---                                 code      all_func_name
-cFuncDefs :: [Ast] -> RegTable -> ([String], [String])
-cFuncDefs fds rgt = (concat $ foldr (\fd zero -> cAFuncDef fd rgt : zero) [] fds, foldr collect_fn [] fds)
+--                                 code   all_func_name   static strings
+cFuncDefs :: [Ast] -> RegTable -> ([String], [String], [String])
+cFuncDefs fds rgt =
+    let (funcs, rgt') = foldr step ([], rgt) fds
+        cfds          = map collect_fn fds
+    in  (concat funcs, cfds, concat $ collect_st rgt')
     where
-        collect_fn (FuncDef _ _ (Identifier _ fn) _ _) z = ("\t.globl\t" ++ fn) : z
+        step fd (res, rgt) = let (c, r) = cAFuncDef fd rgt
+                             in  (c:res, r)
+        collect_fn (FuncDef _ _ (Identifier _ fn) _ _) = ("\t.globl\t" ++ fn)
+        collect_st r = let m = filter (\(a, b) -> head a == ':') $ Map.toList r
+                       in  map (\(a, (b, _)) -> let b' = replace "(%rip)" "" b
+                                                in  [b' ++ ":"] ++ ["\t.string\t\"" ++ tail a ++ "\""]) m
 
 
-cAFuncDef :: Ast -> RegTable -> [String]
+cAFuncDef :: Ast -> RegTable -> ([String], RegTable)
 cAFuncDef (FuncDef ft _ (Identifier _ fn) pl fb) rgt =
-    [fn ++ ":", "\tpushq\t%rbp", "\tmovq\t%rsp, %rbp"]
-        ++ bind (cParams pl) (cComdStmt fb)
-        ++ ["\tret"]
+    let res = bind (cParams pl) (cComdStmt fb)
+    in  ([fn ++ ":", "\tpushq\t%rbp", "\tmovq\t%rsp, %rbp"]
+             ++ fst res
+             ++ ["\tret"], Map.union (snd res) rgt)
     where
         -- clear %eax if function does not have a return-stmt
         label_end = [clr_reg "%rax", ".L_" ++ fn ++ "_END:"]
-        bind (a, b) c = bind' a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
-        bind' a (b, c) = if c /= 0
-                         then ["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ label_end ++ ["\tleave"]
-                         else a ++ b ++ label_end ++ ["\tpopq\t%rbp"]
+        bind (a, b) c     = bind' a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
+        bind' a (b, c, d) = if c /= 0
+                            then (["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ label_end ++ ["\tleave"], getStrObj d)
+                            else (a ++ b ++ label_end ++ ["\tpopq\t%rbp"], getStrObj d)
 
+        getStrObj rgt = Map.fromList $ filter (\(a, b) -> a == ".LC" || head a == ':') $ Map.toList rgt
         cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
 
         get_param_reg pls =
@@ -68,9 +78,11 @@ cAFuncDef (FuncDef ft _ (Identifier _ fn) pl fb) rgt =
             in map (\(a,b,c)->"\t" ++ a ++ "\t" ++ b ++ ", " ++ c) $ zip3 (snd si) reg $ map (\(_,(b,_))->b) pl
 
 
-cComdStmt :: Ast -> RegTable -> ([String], Int) -- Int: stack size needed
+cComdStmt :: Ast -> RegTable -> ([String], Int, RegTable) -- Int: stack size needed
 cComdStmt (ComdStmt _ [] vd sl) rgt =
-    let (clr, var, siz) = cLocalVar vd rgt in ((++) clr $ fst $ cStmtList sl var, siz)
+    let (clr, var, siz) = cLocalVar vd rgt
+        (sl', rgt')     = cStmtList sl var
+    in  ((++) clr sl', siz, rgt')
 
 
 cLocalVar :: [Ast] -> RegTable -> ([String], RegTable, Int) -- Int: stack size
@@ -290,52 +302,32 @@ cAStmt (FuncCall _ (Identifier _ fn) pl) rgt =
             Empty -> z
             _     -> ["\tpopq\t" ++ get_high_reg r] ++ z
 
-cAStmt (Rd _ xs) rgt = (foldr step [] xs, rgt)
+cAStmt (Rd _ xs) rgt = (\(a, b) -> (b, a)) $ foldr step (rgt, []) xs
     where
-        step (Identifier _ x) zero =
-            let (reg, format_str) = case Map.lookup x rgt of
-                    Just (r, 1) -> (r, "$25381")      -- "%c\0"
-                    Just (r, 8) -> (r, "$1684827173") -- "%lld\0"
-            in ["\tpushq\t$0",
-                "\tpushq\t" ++ format_str,
-                "\tleaq\t" ++ reg ++ ", %rdx",
-                "\tleaq\t(%rsp), %rax",
-                "\tmovq\t%rdx, %rsi",
-                "\tmovq\t%rax, %rdi",
-                clr_reg "%rax",
-                "\tcall\t__isoc99_scanf@PLT#2",
-                "\taddq\t$16, %rsp"] ++ zero
+        step (Identifier _ x) (rgt, zero) =
+            let (reg, addr, rgt') =
+                    case Map.lookup x rgt of
+                        Just (r, 1) -> let (addr, rgt') = getStrObjAddr "%c" rgt
+                                       in  (r, addr, rgt')
+                        Just (r, 8) -> let (addr, rgt') = getStrObjAddr "%lld" rgt
+                                       in  (r, addr, rgt')
+            in (,) rgt' $ ["\tleaq\t" ++ reg  ++ ", %rsi",
+                           "\tleaq\t" ++ addr ++ ", %rdi",
+                           clr_reg "%rax",
+                           "\tcall\t__isoc99_scanf@PLT#2"] ++ zero
 
 cAStmt (Wt _ (Str _ s) es) rgt =
     let
-        format_str = convert_str $ foldr (\x z -> replace (fst x) (snd x) z) s spcChr
+        (addr, rgta) = getStrObjAddr s rgt
 
-        (func_call, rgt') = cAStmt (FuncCall (0,0) (Identifier (0,0) "printf@PLT") (Empty : es)) rgt
+        (func_call, rgt') = cAStmt (FuncCall (0,0) (Identifier (0,0) "printf@PLT") (Empty : es)) rgta
         (a, b) =
             if "%rsp" `isInfixOf` (last func_call)
             then (fst $ splitAt (length func_call - 3) func_call, [(last . init) func_call, last func_call])
             else (fst $ splitAt (length func_call - 2) func_call, [last func_call])
         siz = if length es - 5 > 0 then show ((length es - 5) * 8) else ""
-
-        spcChr = [("\\b", "\b"), ("\\t", "\t"), ("\\n", "\n"), ("\\r", "\r")]
     in
-        (["\tpushq\t$0"] ++
-         foldr (\x z -> ["\tmovabsq\t$" ++ x ++ ", %rax", "\tpushq\t%rax"] ++ z) [] format_str ++
-         a ++ ["\tleaq\t" ++ siz ++ "(%rsp), %rdi", clr_reg "%rax"] ++ b ++
-         ["\taddq\t$" ++ show (8 + 8 * length format_str) ++ ", %rsp"]
-        , rgt')
-    where
-        convert_str s = reverse $ map (show . from_bin . foldr (\b a -> show b ++ a) "" . concat . reverse)
-            $ splitEvery 8
-            $ map (\inp -> take (8 - length inp) [0,0..] ++ inp)
-            $ map (to_bin . ord) s
-
-        to_bin = reverse . unfoldr (\x -> if x == 0 then Nothing else Just (x `mod` 2, x `div` 2))
-        from_bin = foldl (\zero x -> zero * 2 + (fromEnum $ x == '1')) 0
-
-        splitEvery _ [] = []
-        splitEvery n xs = a : splitEvery n b where
-            (a, b) = splitAt n xs
+        (a ++ ["\tleaq\t" ++ addr ++ ", %rdi", clr_reg "%rax"] ++ b, rgt')
 
 -- return: (result, register where result is, updated register table)
 cExpr :: Ast -> RegTable -> ([String], String, RegTable)
@@ -511,3 +503,11 @@ cCond exp fb_j lb rgt = case exp of
         fix_md' "le" = "g"
         fix_md' "e"  = "ne"
         fix_md' "ne" = "e"
+
+
+getStrObjAddr str sgt =
+    let (_, idx) = getItem ".LC" sgt
+        lcn = ".LC" ++ show idx ++ "(%rip)"
+    in  case Map.lookup (':':str) sgt of
+        Nothing -> (lcn, Map.insert ".LC" ("", idx + 1) $ Map.insert (':':str) (lcn, 0) sgt)
+        Just  x -> (fst x, sgt)

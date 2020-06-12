@@ -40,7 +40,7 @@ type RegTable = Map String (String, Int)
 
 
 empty_rgt :: Map String (String, Int)
-empty_rgt = fromList []
+empty_rgt = fromList [(".LC", ("", 0))]
 
 get_label rgt = case Map.lookup ".label" rgt of
     Just (n, i) -> ".L_" ++ n ++ "_" ++ show i

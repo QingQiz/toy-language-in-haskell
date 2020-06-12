@@ -17,7 +17,6 @@ doGlobalOptimize cfg =
         fs = splitWithFunction bbs_org
     in
         (++) (getHeader cfg) $ concat $ map globalOptimizeOnAFunction fs
-        -- map globalOptimizeOnAFunction fs
     where
         splitWithFunction bbs = foldr step [] bbs where
             step b z@(x:xs) = case getEntry b of
