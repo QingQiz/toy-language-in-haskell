@@ -283,7 +283,7 @@ cAStmt (FuncCall _ (Identifier _ fn) pl) rgt =
         reg_l = zip (tail $ tail $ map (!!0) registers) params_h
         (inst_calc, rgt') = foldl step_t ([], rgt) pl -- calculate all params and push then into stack
         inst_popv = foldr step_h [] reg_l             -- pop first 6 params
-        param_cnt = length inst_popv + (if "printf@" `isPrefixOf` fn then 1 else 0)
+        param_cnt = length inst_popv
     in
         ([]
          ++ inst_calc
@@ -294,10 +294,11 @@ cAStmt (FuncCall _ (Identifier _ fn) pl) rgt =
         , rgt')
     where
         step_t (z, rgtx) x = case x of
-            Empty      -> (z, rgtx)
+            Str _ s    -> let (addr, rgtx') = getStrObjAddr s rgtx
+                          in  (conn_inst "leaq" addr "%rax" ++ conn_inst_s "pushq" "%rax" ++ z, rgtx')
             Number _ n -> (["\tpushq\t$" ++ show n] ++ z, rgtx)
-            e          -> let (expr, reg, rgtx') = cExpr e rgtx in
-                (expr ++ ["\tpushq\t" ++ get_high_reg reg] ++ z, rgtx')
+            e          -> let (expr, reg, rgtx') = cExpr e rgtx
+                          in  (expr ++ ["\tpushq\t" ++ get_high_reg reg] ++ z, rgtx')
         step_h (r, e) z = case e of
             Empty -> z
             _     -> ["\tpopq\t" ++ get_high_reg r] ++ z
@@ -316,18 +317,7 @@ cAStmt (Rd _ xs) rgt = (\(a, b) -> (b, a)) $ foldr step (rgt, []) xs
                            clr_reg "%rax",
                            "\tcall\t__isoc99_scanf@PLT#2"] ++ zero
 
-cAStmt (Wt _ (Str _ s) es) rgt =
-    let
-        (addr, rgta) = getStrObjAddr s rgt
-
-        (func_call, rgt') = cAStmt (FuncCall (0,0) (Identifier (0,0) "printf@PLT") (Empty : es)) rgta
-        (a, b) =
-            if "%rsp" `isInfixOf` (last func_call)
-            then (fst $ splitAt (length func_call - 3) func_call, [(last . init) func_call, last func_call])
-            else (fst $ splitAt (length func_call - 2) func_call, [last func_call])
-        siz = if length es - 5 > 0 then show ((length es - 5) * 8) else ""
-    in
-        (a ++ ["\tleaq\t" ++ addr ++ ", %rdi", clr_reg "%rax"] ++ b, rgt')
+cAStmt (Wt _ (Str _ s) es) rgt = cAStmt (FuncCall (0,0) (Identifier (0,0) "printf@PLT") ((pStr s) : es)) rgt
 
 -- return: (result, register where result is, updated register table)
 cExpr :: Ast -> RegTable -> ([String], String, RegTable)
@@ -434,8 +424,8 @@ cExpr (Array _ (Identifier _ i) e) rgt =
         (expr, reg, rgt') = cExpr e rgt
 
         mov_inst = case e of
-            Number _ n -> ["\tmovq\t$" ++ show n ++ ", %rax", "\tcltq"]
-            _ -> expr ++ (if reg == "%rax" then [] else ["\tmovq\t" ++ reg ++ ", %rax"]) ++ ["\tcltq"]
+            Number _ n -> ["\tmovq\t$" ++ show n ++ ", %rax"]
+            _ -> expr ++ (if reg == "%rax" then [] else ["\tmovq\t" ++ reg ++ ", %rax"])
 
         regf = get_free_reg ["%rax", "%rbx", reg]
         regfl = get_low_reg regf
