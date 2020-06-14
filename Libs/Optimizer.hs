@@ -154,10 +154,13 @@ commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Ma
         then z
         else if isArith $ snd c then Map.insert (snd c) (fst c) z else z
 
-    updateEQ c z =
-        if snd c == "" || '%' `notElem` fst c || isLetter (head $ snd c) || "%rbp" `isPrefixOf` (fst c)
-        then z
-        else if isNotArith $ snd c then Map.insert (fst c) (snd c) z else z
+    updateEQ c@(a, b) z
+        | b == "" || '%' `notElem` a || "%rbp" `isPrefixOf` a = z
+        | isNotArith b = let res = Map.insert a b z
+                         in  if "rip" `isInfixOf` b && head b /= '*'
+                             then Map.insert ("*(" ++ a ++ ")0") ('*':b) res
+                             else res
+        | otherwise = z
 
     doReplace x@(_, "") _ _ = x
     doReplace c z eq =
