@@ -274,7 +274,6 @@ fromTAC tacs ids entries =
     let
         (tac', spin, spout) = registerRealloca tacs ids entries
     in
-        -- tacs
         reduceStackChange $ doTrans tac'
         -- registerRealloca tacs ids entries
     where
@@ -293,9 +292,17 @@ fromTAC tacs ids entries =
                               | head a == '*' -> conn3 "movq" x (tail a) : []
                               | isRegGroup x || isRegGroup a -> conn3 "leaq" x a : []
                               | otherwise     -> conn3 "movq" x a : []
-                  (x, y, o) | o == "/"  -> conn2 "idivq" y : []
-                            | x == a    -> conn3 (getCmd o) y a : []
+                  (x, y, o) | o == "+" && x == "$0" -> trans (a, y)
+                            | o == "+" && y == "$0" -> trans (a, x)
+                            | o == "-" && y == "$0" -> trans (a, x)
+                            | o == "*" && (x == "$0" || y == "$0") -> trans (a, "$0")
+                            | o == "*" && x == "$1" -> trans (a, y)
+                            | o == "*" && y == "$1" -> trans (a, x)
+                            | o == "/" && x == "$0" -> trans (a, "$0")
+                            | o == "/"  -> conn2 "idivq" y : []
+                            | x == a -> conn3 (getCmd o) y a : []
                             | y == a && (o == "*" || o == "+") -> conn3 (getCmd o) x a : []
+                            | o == "/" && y == "$1" -> trans (a, x)
                             | otherwise -> conn3 "movq" x a : conn3 (getCmd o) y a : []
 
         getCmd op = case op of
@@ -316,8 +323,10 @@ reduceStackChange code
     | null ref = reduceAllStack code
     | null neg_ref = reduceSubRspAndLeave code
     | otherwise = code
-    where ref     = filter (\x -> "(%rbp" `isInfixOf` x || ("push" `isInfixOf` x && not ("\t%rbp" `isInfixOf` x))) code
-          neg_ref = filter (\x -> "\t-"   `isInfixOf` x || " -"   `isInfixOf` x) ref
+    where ref     = filter (\x ->  "(%rbp" `isInfixOf` x
+                               || ("push"  `isInfixOf` x && not ("\t%rbp" `isInfixOf` x))
+                               ||  "call"  `isInfixOf` x) code
+          neg_ref = filter (\x -> "\t-"    `isInfixOf` x || " -"   `isInfixOf` x) ref
 
           reduce f (c:code) | f c = reduce f code
                             | otherwise = c : reduce f code
