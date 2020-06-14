@@ -1,5 +1,7 @@
 module Optimizer where
 
+import Debug.Trace
+
 import TAC
 import CFG
 import Livness
@@ -9,6 +11,8 @@ import Data.List
 import Data.List.Utils
 import qualified Data.Map as Map
 
+
+optimize code = untilNoChange (doGlobalOptimize . buildCFG) code
 
 -- doLocalOptimize :: CFG -> CFG
 doGlobalOptimize cfg =
@@ -25,13 +29,17 @@ doGlobalOptimize cfg =
             step b [] = [[b]]
 
 
+show' ((a, b):ts) = "\n" ++ (if length a >= 8 then a ++ "" else a ++ "\t") ++ "\t" ++ (if null b then "" else "=\t" ++ b) ++ show' ts
+show' [] = "\n"
 globalOptimizeOnAFunction bbs =
     let
         tacs          = map (toTAC . getCode) bbs
         ids           = map getId bbs
         entries       = map getEntry bbs
         optimized_tac = untilNoChange (\x -> optimizeOnce x ids entries) tacs
+
     in
+        -- error $ (show' (concat tacs) ++ "\n\n" ++ show' (concat optimized_tac))
         -- error $ show tacs
         fromTAC optimized_tac ids entries
     where
@@ -39,7 +47,7 @@ globalOptimizeOnAFunction bbs =
             let dead_code = globalDeadCodeElim tacs ids entries
                 expr_elim = map (\x -> fst' $ commonSubexprElim x Map.empty Map.empty) dead_code
                 copy_prop = globalConstCopyPropagation expr_elim ids entries
-            in  copy_prop
+            in  trace (show' $ concat copy_prop) copy_prop
 
 
 globalDeadCodeElim tacs ids entries = untilNoChange (\x -> globalDeadCodeElimOnce x ids entries) tacs
@@ -70,48 +78,62 @@ globalDeadCodeElimOnce tacs ids entries =
 globalConstCopyPropagation [] _ _ = []
 globalConstCopyPropagation tacs ids entries =
     let
-        id_const_init  = Map.fromList $ zip ids (replicate (length ids) [])
-        -- id_const :: Map.Map Int [(String, String)]
-        id_const_final = untilNoChange (findConst (head tacs) (head ids) (head entries) []) id_const_init
-        id_const = Map.fromList
-            $ map (\(a, b) -> (,) a $ map (\(l, r) -> (rmRegIndex l, rmRegIndex r)) b)
-            $ Map.toList id_const_final
     in
-        map (\id -> let tac = getItem id id_tac
-                        eq  = Map.fromList $ getItem id id_const
-                    in  doCopyPropagation tac eq) ids
+        snd $ unzip $ Map.toList $ foldr forABlock (Map.fromList $ zip ids tacs) ids
     where
-        id_entry = Map.fromList $ zip ids entries
-        id_tac   = Map.fromList $ zip ids tacs
+        ud = "ud" -- undefiend
+        nc = "nc" -- not const
+        id_entry = zip ids entries
 
-        doCopyPropagation tac eq = snd $ foldr step (eq, []) tac where
-            step (l, r) (eq, res) =
-                let fixed_l = rmRegIndex l
-                in  case Map.lookup fixed_l eq of
-                    Nothing -> (eq,  (l, doCopy r eq True):res)
-                    Just  _ -> (Map.delete fixed_l eq, (l, doCopy r eq True):res)
+        findConst tac = Map.toList $ Map.fromList -- find the last assign
+            $ map (\(a, b) -> (rmRegIndex a, b)) $ sort
+            -- find all (rbp, const)
+            $ filter (\(a, b) -> "rbp" `isInfixOf` a) $ filter (isConst . snd) tac
 
-        findConst tac id [] _ const = updateConst id tac const
+        forABlock id id_tac =
+            let consts = findConst (getItem id id_tac)
+            in  foldr (forAConst id) id_tac consts
 
-        findConst tac id entry vis const =
-            let (const', _) = foldr step (const, vis) entry where
-                    step x z@(const, vis) = if x `elem` vis then z else
-                        let tac = getItem id id_tac
-                            entry = getItem id id_entry
-                            const' = findConst tac x entry (x:vis) const
-                        in  (const', x:vis)
-            in updateConst id tac const
-
-        updateConst id tac const =
-            let (tac', _, eq) = commonSubexprElim tac Map.empty Map.empty
-                eq' = Map.toList $ Map.fromList $ filter (isConst . snd) $ Map.toList eq
-            in  foldr update const eq'
+        -- forAConst :: (lst, rst) -> id_tac -> id_tac'
+        forAConst id_start (a, b) id_tac =
+            let stat_init = Map.fromList
+                    $ map (\x@(id, _) -> (,) id (ud, buildStat ud x))
+                    $ Map.toList id_tac
+                stat = untilNoChange updateStat stat_init
+            in  doReplace (a, b) stat id_tac
             where
-                update (l, r) z = Map.fromList $ foldr step [] (Map.toList z) where
-                    step x@(id, const_l) z = let c = break ((==l) . fst) const_l
-                        in  case snd c of
-                            [] -> (id, (l, r):const_l):z
-                            (a, b):rst -> if b == r then x:z else (id, (++) (fst c) $ (a, ""):rst):z
+                doReplace (a, b) id_stat id_tac = Map.fromList $ map doReplace' (Map.toList id_tac) where
+                    doReplace' (id, tac)
+                        | bef == ud || bef == nc = (id, tac)
+                        | otherwise = (id, func a bef tac)
+                        where (bef, aft) = getItem id id_stat
+                              func a b ((l, r):tac)
+                                  | rmRegIndex a == rmRegIndex l = tac
+                                  | otherwise = (replace a b l, replace a b r) : func a b tac
+                              func _ _ _ = []
+
+                buildStat init (id, tac)
+                    | id == id_start = meet init b
+                    | otherwise =
+                          let const = findConst tac
+                              l     = filter (\(ca, cb) -> ca == a) const
+                              b'    = if null l then ud else snd $ head l
+                          in meet init b'
+
+                updateStat id_stat = Map.fromList $ map (\id -> (,) id $ updateStat' id) ids where
+                    updateStat' id =
+                        let fs = map fst $ filter (\(i, e) -> id `elem` e) id_entry
+                            st = map (\id -> snd $ getItem id id_stat) fs
+                            (bef, aft) = getItem id id_stat
+                            bef' = foldr (\x z -> meet x z) bef st
+                            aft' = buildStat bef' (id, getItem id id_tac)
+                        in  (bef', aft')
+
+        meet a b | a == nc || b == nc = nc
+                 | a == ud = b
+                 | b == ud = a
+                 | a /= b  = nc
+                 | a == b  = a
 
 
 commonSubexprElim [] _ _ = ([], Map.empty, Map.empty)
@@ -122,15 +144,20 @@ commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Ma
         csElim cs (doReplace c z eq : code) (updateZ c z) (updateEQ c eq)
     csElim [] code z eq = (constFolding $ reverse code, z, eq)
 
+    isArith r = case getOperand r of
+        (a, "", "") -> False
+        _           -> True
+    isNotArith = not . isArith
+
     updateZ c z =
         if snd c == "" || isLetter (head $ fst c) || '%' `notElem` (snd c)
         then z
-        else if not $ isSimple (snd c) then Map.insert (snd c) (fst c) z else z
+        else if isArith $ snd c then Map.insert (snd c) (fst c) z else z
 
     updateEQ c z =
         if snd c == "" || '%' `notElem` fst c || isLetter (head $ snd c) || "%rbp" `isPrefixOf` (fst c)
         then z
-        else if isSimple (snd c) then Map.insert (fst c) (snd c) z else z
+        else if isNotArith $ snd c then Map.insert (fst c) (snd c) z else z
 
     doReplace x@(_, "") _ _ = x
     doReplace c z eq =
