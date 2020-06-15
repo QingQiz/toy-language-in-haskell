@@ -1,8 +1,10 @@
 module TAC where
 
+import Debug.Trace
 import Livness
 import Register
 import Functions
+import Data.Char
 import Data.List
 import Data.List.Split
 import Data.List.Utils
@@ -66,7 +68,11 @@ toTAC code = toTAC' code [] Map.empty where
                 then h ++ "(" ++ intercalate "," (map fixl v) ++ ")"
                 else rg
 
-            fixReg r | r `elem` concat registers = let i = get_reg_index r in i !! 0
+            fixReg r | r `elem` concat registers =
+                           let i = (get_reg_index r) !! 0
+                           in  if isDigit $ last i
+                               then i ++ "x"
+                               else i
                      | otherwise = r
             fixl xi = let x = fixRegG $ fixReg xi in
                 if isReg x
@@ -145,7 +151,7 @@ registerRealloca tacs ids entries =
                 final     = params ++ func_call ++ ret_val ++ g_vars
             in  Map.fromList $ zip final $ map rmRegIndex final
     in
-        (func tac' liv' (tail liv') alloc_init [] [] [])
+        {-trace (unlines $ map show liv') $ -}(func tac' liv' (tail liv') alloc_init [] [] [])
     where
         id_entry = Map.fromList $ zip ids entries
         id_tac   = Map.fromList $ zip ids tacs
@@ -153,7 +159,7 @@ registerRealloca tacs ids entries =
 
         func (t:tac) (l_up:liv_up) (l_down:liv_down) alloc tac' spin spout =
             let (t', alloc', spin', spout') = allocaAStep t l_up l_down alloc
-            in  func tac liv_up liv_down alloc' (t':tac') (spin' : spin) (spout' : spout)
+            in  func tac liv_up liv_down alloc' ((reverse t') ++ tac') (spin' : spin) (spout' : spout)
         func _ _ _ _ tac spin spout = (reverse tac, reverse spin, reverse spout)
 
         allocaAStep t@(tl, tr) l_up l_down alloc =
@@ -162,11 +168,18 @@ registerRealloca tacs ids entries =
                 regr = getRegs tr
                 -- (t' , a' , si , so ) = allocaAStep' t  (filter (\x -> x `elem` regl) l_down) l_up   alloc
                 -- (t'', a'', si', so') = allocaAStep' t' (filter (\x -> x `elem` regr) l_down) l_down a'
+                res = allocaAStep' t l_down l_down alloc
             in
-                allocaAStep' t l_down l_down alloc
+                res
+                -- trace (show $ (\(_,a,_,_)->a) res) res
                 --- XXX return a * 5 + b -> mul 5 a, add a b, ret b
                 ---     current             mov a b, mul 5 b, add b c, ret c
                 -- (t'', a'', si ++ si', so ++ so')
+
+        regFree l alloc =
+            let valid     = filter (\(a, b) -> a `elem` l) $ Map.toList alloc
+                reg_using = map snd valid
+            in  filter (\x -> x `notElem` reg_using) reg_all
 
         allocaAStep' t rs l alloc =
             let
@@ -180,17 +193,13 @@ registerRealloca tacs ids entries =
                     in  (alloc', mergeInto spout' spout)
 
                 -- tryAlloc :: register -> alloc -> (alloc, register to spill out)
-                tryAlloc r alloc  =
-                    let valid     = filter (\(a, b) -> a `elem` l) $ Map.toList alloc
-                        reg_using = map snd valid
-                        regs      = filter (\x -> x `notElem` reg_using) reg_all
-                    in  case Map.lookup r alloc of
-                            Nothing
-                                | isRegGroup r && not ("rbp" `isInfixOf` r) ->
-                                      let (_:v:[]) = getGroupVal r
-                                      in  tryAlloc v alloc
-                                | otherwise -> doAlloca r regs alloc
-                            Just  x -> (alloc, Nothing)
+                tryAlloc r alloc  = case Map.lookup r alloc of
+                    Nothing
+                        | isRegGroup r && not ("rbp" `isInfixOf` r) ->
+                              let (_:v:[]) = getGroupVal r
+                              in  tryAlloc v alloc
+                        | otherwise -> doAlloca r (reverse $ regFree l alloc) alloc
+                    Just  x -> (alloc, Nothing)
                     where
                         doAlloca r regs alloc
                             | null regs =
@@ -228,26 +237,33 @@ registerRealloca tacs ids entries =
                         (alloc'', spout) = tryAlloc r alloc'
                         spin             = (getItem r alloc, getItem r alloc'')
                     in  (alloc'', spin, spout)
+
                 replaceRegWihtAlloca t@(a, b) alloc =
                     let regs = getRegs a ++ getRegs b
-                    in  foldr step (t, alloc, [], []) regs
+                    in  foldr step ([t], alloc, [], []) regs
                     where
                         step reg (t, alloc, spin, spout) =
-                            let (t', alloc', spin', spout') = doReplace t reg
+                            let (t', alloc', spin', spout') = doReplace (last t) reg
                                 spin''                      = mergeInto spin' spin
                                 spout''                     = mergeInto spout' spout
                             in  (t', alloc', spin'', spout'')
 
                         -- return: (tac', alloc', maybe spill in, maybe spill out)
                         doReplace t@(a, b) reg = case Map.lookup reg alloc of
-                            Nothing -> (t, alloc, Nothing, Nothing)
+                            Nothing -> ([t], alloc, Nothing, Nothing)
                             Just  x | "spill" `isInfixOf` x ->
                                           let (alloc', spin@(_, reg'), spout) = spillIn reg alloc
-                                              tac' = (replace reg reg' a, replace reg reg' b)
-                                          in  (tac', alloc', Just spin, spout)
+                                              t' = (replace reg reg' a, replace reg reg' b)
+                                          in  ([t'], alloc', Just spin, spout)
+                                    | null same_name ->
+                                          let t' = (replace reg x a, replace reg x b)
+                                          in  ([t'], alloc, Nothing, Nothing)
                                     | otherwise ->
-                                          let tac' = (replace reg x a, replace reg x b)
-                                          in  (tac', alloc, Nothing, Nothing)
+                                          let t'  = (replace reg x a, replace reg x b)
+                                              free  = reverse $ regFree l alloc
+                                              (so, sa) = head same_name -- (orign, allocaed)
+                                          in  ([(head free, sa), t'], Map.insert so (head free) alloc, Nothing, Nothing)
+                                    where same_name = filter (\(bef, aft) -> bef /= a && aft == x && bef `elem` l) $ Map.toList alloc
 
         -- > fixLocal [["%eax1"], ["%eax2"], ["%eax1"]] == [["%eax1"], ["%eax1", "%eax2"], ["%eax1"]]
         fixLocal liv =
@@ -303,7 +319,7 @@ fromTAC tacs ids entries =
                             | x == a -> conn3 (getCmd o) y a : []
                             | y == a && (o == "*" || o == "+") -> conn3 (getCmd o) x a : []
                             | o == "/" && y == "$1" -> trans (a, x)
-                            | otherwise -> conn3 "movq" x a : conn3 (getCmd o) y a : []
+                            | otherwise -> trans (a, x) ++ trans (a, a ++ o ++ y)
 
         getCmd op = case op of
             "+" -> "addq"
@@ -324,8 +340,7 @@ reduceStackChange code
     | null neg_ref = reduceSubRspAndLeave code
     | otherwise = code
     where ref     = filter (\x ->  "(%rbp" `isInfixOf` x
-                               || ("push"  `isInfixOf` x && not ("\t%rbp" `isInfixOf` x))
-                               ||  "call"  `isInfixOf` x) code
+                               || ("push"  `isInfixOf` x && not ("\t%rbp" `isInfixOf` x))) code
           neg_ref = filter (\x -> "\t-"    `isInfixOf` x || " -"   `isInfixOf` x) ref
 
           reduce f (c:code) | f c = reduce f code
