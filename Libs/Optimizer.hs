@@ -3,6 +3,7 @@ module Optimizer where
 import Debug.Trace
 
 import TAC
+
 import CFG
 import Livness
 import Functions
@@ -12,7 +13,9 @@ import Data.List.Utils
 import qualified Data.Map as Map
 
 
-optimize code = untilNoChange (doGlobalOptimize . buildCFG) code
+optimize code = untilF cond func code
+    where cond now bef = length now > length bef || now == bef
+          func         = ((\x -> trace (unlines x) x) . doGlobalOptimize . buildCFG)
 
 -- doLocalOptimize :: CFG -> CFG
 doGlobalOptimize cfg =
@@ -29,8 +32,8 @@ doGlobalOptimize cfg =
             step b [] = [[b]]
 
 
-show' ((a, b):ts) = "\n" ++ (if length a >= 8 then a ++ "" else a ++ "\t") ++ "\t" ++ (if null b then "" else "=\t" ++ b) ++ show' ts
-show' [] = "\n"
+-- show' ((a, b):ts) = "\n" ++ (if length a >= 8 then a ++ "" else a ++ "\t") ++ "\t" ++ (if null b then "" else "=\t" ++ b) ++ show' ts
+-- show' [] = "\n"
 globalOptimizeOnAFunction bbs =
     let
         tacs          = map (toTAC . getCode) bbs
@@ -44,10 +47,13 @@ globalOptimizeOnAFunction bbs =
         fromTAC optimized_tac ids entries
     where
         optimizeOnce tacs ids entries =
-            let dead_code = globalDeadCodeElim tacs ids entries
-                expr_elim = map (\x -> fst' $ commonSubexprElim x Map.empty Map.empty) dead_code
-                copy_prop = globalConstCopyPropagation expr_elim ids entries
-            in  trace (show' $ concat copy_prop) copy_prop
+            let copy_prog  = map (constFolding . copyPropagation) tacs
+                dead_code1 = globalDeadCodeElim copy_prog ids entries
+                expr_elim  = map (constFolding . commonSubexprElim) dead_code1
+                dead_code2 = globalDeadCodeElim expr_elim ids entries
+                gcopy_prop = globalConstCopyPropagation dead_code2 ids entries
+            in  --trace (show' $ concat copy_prop)
+                map (commonSubexprElim) gcopy_prop
 
 
 globalDeadCodeElim tacs ids entries = untilNoChange (\x -> globalDeadCodeElimOnce x ids entries) tacs
@@ -136,69 +142,76 @@ globalConstCopyPropagation tacs ids entries =
                  | a == b  = a
 
 
-commonSubexprElim [] _ _ = ([], Map.empty, Map.empty)
-commonSubexprElim tac init_z init_eq = untilNoChange convert (tac, Map.empty, Map.empty) where
-    convert (tac, _, _) = csElim tac [] init_z init_eq
+-- XXX a = x(rip); *a = b; a = x(rip); a = a + 8; *a = c
+--  -> a = x(rip); *a = b; a = a + 8; *a = c
+copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
+    cP (c:cs) res eq = cP cs ((doReplace c eq) : res) (update c eq)
+    cP [] res _ = reverse res
 
-    csElim (c:cs) code z eq =
-        csElim cs (doReplace c z eq : code) (updateZ c z) (updateEQ c eq)
-    csElim [] code z eq = (constFolding $ reverse code, z, eq)
-
-    isArith r = case getOperand r of
-        (a, "", "") -> False
-        _           -> True
-    isNotArith = not . isArith
-
-    updateZ c z =
-        if snd c == "" || isLetter (head $ fst c) || '%' `notElem` (snd c)
-        then z
-        else if isArith $ snd c then Map.insert (snd c) (fst c) z else z
-
-    updateEQ c@(a, b) z
-        | b == "" || '%' `notElem` a || "%rbp" `isPrefixOf` a = z
-        | isNotArith b = let res = Map.insert a b z
+    update c@(a, b) eq
+        | b == "" || '%' `notElem` a || "%rbp" `isPrefixOf` a = eq
+        | isNotArith b = let res = Map.insert a b eq
                          in  if "rip" `isInfixOf` b && head b /= '*'
                              then Map.insert ("*(" ++ a ++ ")0") ('*':b) res
                              else res
-        | otherwise = z
+        | otherwise = eq
 
-    doReplace x@(_, "") _ _ = x
-    doReplace c z eq =
-        -- common subexpression elimination
-        case Map.lookup (snd c) z of
-            Nothing -> if isRegGroup (snd c) && head (snd c) == '*'
-                then case Map.lookup (tail (snd c)) z of
-                    -- copy propagation
-                    Nothing -> (fst c, doCopy (snd c) eq False)
-                    Just  x -> (fst c, "*" ++ x)
-                -- copy propagation
-                else (fst c, doCopy (snd c) eq False)
-            Just  x -> (fst c, x)
+    doReplace x@(a, b) eq
+        | null b = x
+        | otherwise = (a, doCopy b eq)
 
 
-doCopy c eq ignoreIdx = case getOperand c of
-    (a, "", _) -> case copy a eq of
-        Nothing -> if isRegGroup a
-            then let (h:val) = getGroupVal a in h ++ copyIntoG val [] ++ (tail $ snd $ break (==')') a)
-            else a
-        Just  x -> x
-    (a, b, op) -> doCopy a eq ignoreIdx ++ op ++ doCopy b eq ignoreIdx
+commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
+    cE (c:cs) res eq = cE cs ((doReplace c eq) : res) (update c eq)
+    cE [] res _ = reverse res
+
+    update (a, b) eq
+        | b == "" || isLetter (head a) || '%' `notElem` b = eq
+        | isNotSimple b = let res = Map.insert b a eq
+                          in  if "rip" `isInfixOf` b && head b /= '*'
+                              then Map.insert ('*':b) ("*(" ++ a ++ ")0") res
+                              else res
+        | otherwise = eq
+
+    doReplace c@(a, b) eq
+        | b == "" = c
+        | otherwise = case Map.lookup b eq of
+              Nothing | isRegGroup b && head b == '*' -> case Map.lookup (tail b) eq of
+                            Nothing -> c
+                            Just  x -> (a, "*" ++ x)
+                      | otherwise -> c
+              Just  x -> (a, x)
+
+
+doCopy c eq = doCopy' c
     where
         copyIntoG (c:cs) z = case copy c eq of
             Nothing -> copyIntoG cs (c:z)
             Just  x -> if isRegGroup x then copyIntoG cs (c:z) else copyIntoG cs (x:z)
         copyIntoG [] z = "(" ++ intercalate "," (reverse z) ++ ")"
 
-        copy a eq = let a' = if ignoreIdx then rmRegIndex a else a in
-            if a' == "" || "%rsp" `isPrefixOf` a'
-            then Nothing
-            else case Map.lookup a' eq of
-                Nothing -> if head a' == '*'
-                    then case Map.lookup (tail a') eq of
-                        Nothing -> Nothing
-                        Just  x -> Just $ '*':x
-                    else Nothing
-                Just  x -> Just x
+        doCopy' x = case getOperand x of
+            (a, "", _) -> case copy a eq of
+                Nothing ->
+                    if isRegGroup a
+                    then let (h:val) = getGroupVal a in h ++ copyIntoG val [] ++ (tail $ snd $ break (==')') a)
+                    else a
+                Just  x -> x
+            (a, b, op) -> doCopy' a ++ op ++ doCopy' b
+
+        copy a eq | a == "" || "%rsp" `isPrefixOf` a = Nothing
+                  | otherwise = case Map.lookup a eq of
+                        Nothing -> if head a == '*'
+                            then case Map.lookup (tail a) eq of
+                                     Nothing -> Nothing
+                                     Just  x -> let x' = mayCopy x (tail a) in Just $ '*':x'
+                            else Nothing
+                        Just  x -> Just $ mayCopy x a
+        mayCopy x y = if isSimple x
+                      then x
+                      else if isNotArith c
+                           then trace (show x ++ "\t" ++ show y ++ "\t" ++ show c) x
+                           else y
 
 
 constFolding tac = untilNoChange foldOnce tac where

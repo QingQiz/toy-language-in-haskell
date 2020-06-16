@@ -7,9 +7,10 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 
-untilNoChange :: Eq a => (a -> a) -> a -> a
-untilNoChange f x = until_no_change' f (f x) x where
-    until_no_change' f x x' = if x == x' then x else until_no_change' f (f x) x
+untilF cnd f x = until' cnd f (f x) x where
+    until' cnd f x x' = if cnd x x' then x' else until' cnd f (f x) x
+
+untilNoChange f x = untilF (==) f x
 
 
 conn_cmd  cmd     = ['\t':cmd]
@@ -60,12 +61,10 @@ isConst c = let c' = dropWhile (`elem` "$-") c in c' /= "" && all isDigit c'
 
 isRegGroup c = let c' = dropWhile (`elem` "+-*/") c in
     cntElem "()" c' == 2 && cntElem "+-*/~" c' == 0
+isNotRegGroup = not . isRegGroup
 
-
-isSimple c = not (isRegGroup c) && case getOperand c of
-    (a, "", "") -> True
-    _           -> False
-
+isSimple c = isNotRegGroup c && isNotArith c
+isNotSimple = not . isSimple
 
 getGroupVal = init . concat . map (splitOn ")") . concat . map (splitOn "(") . splitOn ","
 
@@ -100,6 +99,11 @@ rmRegIndex r = if not (isReg r) then r else
         then reverse $ dropWhile isDigit $ reverse r
         else let (a, b, op) =  getOperand r in
             rmRegIndex a ++ op ++ rmRegIndex b
+
+isArith r = case getOperand r of
+    (a, "", "") -> False
+    _           -> True
+isNotArith = not . isArith
 
 
 first f x = head' $ snd $ break f x where head' (x:xs) = x
