@@ -74,10 +74,17 @@ collectLivness tac liv = foldr step [liv] tac where
         | a == "cltd"          = "%rax" : init
         | a == "cltq"          = "%rax" : init
         | a == "cqto"          = "%rax" : init
-        | otherwise            = (if isRegGroup a then tail $ getGroupVal a else [])
-                                 ++ (if head a == '*' then getRegs $ tail a else [])
-                                 ++ getRegs b
-                                 ++ specialRemove a init
+        | otherwise            =
+              let header = (if isRegGroup a then tail $ getGroupVal a else [])
+                           ++ (if head a == '*' then getRegs $ tail a else [])
+                  init'  = specialRemove a init
+                  body   = case getOperand b of
+                      (a, [], []) -> func a
+                      (a, b , _ ) -> func a ++ func b
+              in  header ++ body ++ init'
+              where func a | "rbp" `isInfixOf` a = [a]
+                           | isRegGroup a && head a == '*' = tail $ getRegs a
+                           | otherwise = getRegs a
 
     specialRemove a l = let fixed_reg = rmRegIndex a in
         removeWhere (\x -> x == fixed_reg || x == a) l
