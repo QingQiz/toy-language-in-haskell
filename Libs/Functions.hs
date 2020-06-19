@@ -55,7 +55,9 @@ mergeInto (Just x) l = x : l
 ----------------------------------------------------------------
 --                functions for registers                     --
 ----------------------------------------------------------------
+isReg :: String -> Bool
 isReg c = '%' `elem` c
+isNotReg = not . isReg
 
 isConst c = let c' = dropWhile (`elem` "$-") c in c' /= "" && all isDigit c'
 
