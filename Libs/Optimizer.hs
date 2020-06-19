@@ -1,7 +1,9 @@
 module Optimizer where
 
 import Debug.Trace
+
 import TAC
+
 import CFG
 import Livness
 import Functions
@@ -13,7 +15,7 @@ import qualified Data.Map as Map
 
 optimize code = untilF cond func code
     where cond now bef = length now > length bef || now == bef
-          func         = (\x -> trace (unlines x) x) . doGlobalOptimize . buildCFG
+          func         = ((\x -> trace (unlines x) x) . doGlobalOptimize . buildCFG)
 
 -- doLocalOptimize :: CFG -> CFG
 doGlobalOptimize cfg =
@@ -30,13 +32,19 @@ doGlobalOptimize cfg =
             step b [] = [[b]]
 
 
+-- show' ((a, b):ts) = "\n" ++ (if length a >= 8 then a ++ "" else a ++ "\t") ++ "\t" ++ (if null b then "" else "=\t" ++ b) ++ show' ts
+-- show' [] = "\n"
 globalOptimizeOnAFunction bbs =
-    let tacs          = map (toTAC . getCode) bbs
+    let
+        tacs          = map (toTAC . getCode) bbs
         ids           = map getId bbs
         entries       = map getEntry bbs
         optimized_tac = untilNoChange (\x -> optimizeOnce x ids entries) tacs
 
-    in  fromTAC optimized_tac ids entries
+    in
+        -- error $ (show' (concat tacs) ++ "\n\n" ++ show' (concat optimized_tac))
+        -- error $ show tacs
+        fromTAC optimized_tac ids entries
     where
         optimizeOnce tacs ids entries =
             let copy_prog  = map (constFolding . copyPropagation) tacs
@@ -74,6 +82,8 @@ globalDeadCodeElimOnce tacs ids entries =
 
 globalConstCopyPropagation [] _ _ = []
 globalConstCopyPropagation tacs ids entries =
+    let
+    in
         snd $ unzip $ Map.toList $ foldr forABlock (Map.fromList $ zip ids tacs) ids
     where
         ud = "ud" -- undefiend
@@ -83,37 +93,39 @@ globalConstCopyPropagation tacs ids entries =
         findConst tac = Map.toList $ Map.fromList -- find the last assign
             $ map (\(a, b) -> (rmRegIndex a, b)) $ sort
             -- find all (rbp, const)
-            $ filter (\(a, b) -> isReg a && isConst b) tac
+            $ filter (isConst . snd) tac
 
         forABlock id id_tac =
             let consts = findConst (getItem id id_tac)
-            in  foldr (forAConst id) id_tac consts
+            in  foldr forAConst id_tac consts
 
         -- forAConst :: (lst, rst) -> id_tac -> id_tac'
-        forAConst id_start (a, b) id_tac =
+        forAConst (a, b) id_tac =
             let stat_init = Map.fromList
                     $ map (\x@(id, _) -> (,) id (ud, buildStat ud x))
                     $ Map.toList id_tac
                 stat = untilNoChange updateStat stat_init
-            in  doReplace (a, b) stat id_tac
+            in  trace (show stat_init ++ show a ++ show b ++ show stat) $ doReplace (a, b) stat id_tac
             where
                 doReplace (a, b) id_stat id_tac = Map.fromList $ map doReplace' (Map.toList id_tac) where
                     doReplace' (id, tac)
                         | bef == ud || bef == nc = (id, tac)
-                        | otherwise = (id, func (fixRegIndex a) bef tac)
+                        | otherwise = (id, func a bef tac)
                         where (bef, aft) = getItem id id_stat
-                              func a b tac@((l, r):ts)
-                                  | rmRegIndex a == rmRegIndex l = tac
-                                  | otherwise = (l, replace a b r) : func a b ts
+                              func a b inp@((l, r):tac)
+                                  | rmRegIndex a == rmRegIndex l = inp
+                                  | rmRegIndex a == rmRegIndex r = (l, b) : func a b tac
+                                  | otherwise = (l, r) : func a b tac
                               func _ _ _ = []
 
+                -- update stat by tac of current basic block
                 buildStat init (id, tac)
-                    | id == id_start = meet init b
                     | otherwise =
-                          let l  = filter (\(ca, cb) -> rmRegIndex ca == a) tac
-                              b' = if null l then ud else snd $ head l
-                          in  meet init b'
+                          let l     = filter (\(ca, cb) -> rmRegIndex ca == rmRegIndex a) tac
+                              b'    = if null l then ud else snd $ last l
+                          in  trace(show a ++ show b ++ show b' ++ show tac) $ meet init b'
 
+                -- update stat by stat of other basic block
                 updateStat id_stat = Map.fromList $ map (\id -> (,) id $ updateStat' id) ids where
                     updateStat' id =
                         let fs = map fst $ filter (\(i, e) -> id `elem` e) id_entry
@@ -122,22 +134,17 @@ globalConstCopyPropagation tacs ids entries =
                             bef' = foldr (\x z -> meet' x z) (if null st then ud else head st) st
                             aft' = buildStat bef' (id, getItem id id_tac)
                         in  (bef', aft')
-                        where meet' a b = let x = meet a b in if a == ud || b == ud then ud else x
+                        where meet' a b = if a == ud || b == ud then ud else meet a b
 
         meet a b | a == nc || b == nc = nc
                  | a == ud = b
                  | b == ud = a
-                 | rmRegIndex a /= rmRegIndex b = nc
-                 | otherwise = a
-
-        fixRegIndex r | isNotReg r = r
-                      | isRegGroup r = let (h:vals) = getGroupVal r in
-                            h ++ "(" ++ intercalate "," (map fixRegIndex vals) ++ ")0"
-                      | isSimple r = rmRegIndex r ++ "0"
-                      | otherwise = let (a, b, op) = getOperand r in
-                            fixRegIndex a ++ op ++ fixRegIndex b
+                 | a /= b  = nc
+                 | a == b  = a
 
 
+-- XXX a = x(rip); *a = b; a = x(rip); a = a + 8; *a = c
+--  -> a = x(rip); *a = b; a = a + 8; *a = c
 copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
     cP (c:cs) res eq = cP cs ((doReplace c eq) : res) (update c eq)
     cP [] res _ = reverse res
