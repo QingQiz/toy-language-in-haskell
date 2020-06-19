@@ -7,10 +7,25 @@ import Functions
 import Data.Char
 import Data.List
 import Data.List.Utils
+import Data.List.Split
 import qualified Data.Map as Map
 
 runCodeGen = cProgram
 
+finalDash code = ["\t.globl\tread"]
+      ++ conn_lab    "read"
+      ++ conn_inst_s "pushq" "%rbp"
+      ++ conn_inst   "movq" "%rsp" "%rbp"
+      ++ conn_inst   "subq" "$16" "%rsp"
+      ++ conn_inst   "leaq" "(%rsp)" "%rsi"
+      ++ conn_inst_s "call" "scanf@PLT"
+      ++ conn_inst   "movq" "(%rsp)" "%rax"
+      ++ conn_cmd    "leave"
+      ++ conn_cmd    "ret"
+      ++ removeSig code
+    where removeSig (c:cs) = let c' = replace "`fc" "" $ head $ splitOn "#" c
+                             in  c' : removeSig cs
+          removeSig [] = []
 
 cProgram :: Ast -> [String]
 cProgram (Program _ _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fds)
@@ -61,7 +76,7 @@ cAFuncDef (FuncDef ft _ (Identifier _ fn) pl fb) rgt =
         bind (a, b) c     = bind' a $ c $ Map.insert ".label" (fn, 1) $ Map.union b rgt
         bind' a (b, c, d) = if c /= 0
                             then (["\tsubq\t$" ++ show c ++ ", %rsp"] ++ a ++ b ++ label_end ++ ["\tleave"], getStrObj d)
-                            else (a ++ b ++ label_end ++ ["\tpopq\t%rbp"], getStrObj d)
+                            else (a ++ b ++ label_end ++ ["\tleave"], getStrObj d)
 
         getStrObj rgt = Map.fromList $ filter (\(a, b) -> a == ".LC" || head a == ':') $ Map.toList rgt
         cParams pls = (for_pl pls, Map.fromList $ get_param_reg pls)
@@ -312,10 +327,10 @@ cAStmt (Rd _ xs) rgt = (\(a, b) -> (b, a)) $ foldr step (rgt, []) xs
                                        in  (r, addr, rgt')
                         Just (r, 8) -> let (addr, rgt') = getStrObjAddr "%lld" rgt
                                        in  (r, addr, rgt')
-            in (,) rgt' $ ["\tleaq\t" ++ reg  ++ ", %rsi",
-                           "\tleaq\t" ++ addr ++ ", %rdi",
-                           clr_reg "%rax",
-                           "\tcall\t__isoc99_scanf@PLT#2"] ++ zero
+            in  (,) rgt' $ conn_inst "leaq" addr "%rdi" ++ conn_inst "movq" "$0" "%rax"
+                        ++ conn_inst_s "call" "read#1"
+                        ++ conn_inst "movq" "%rax`fc" (fst $ getItem x rgt')
+                        ++ zero
 
 cAStmt (Wt _ (Str _ s) es) rgt = cAStmt (FuncCall (0,0) (Identifier (0,0) "printf@PLT") ((pStr s) : es)) rgt
 
@@ -446,7 +461,7 @@ cExpr (Identifier _ i) rgt = case Map.lookup i rgt of
     -- Just (a, 1) -> (["\tmovzbl\t" ++ a ++ ", %eax", "\tmovsbl\t%al, %eax"], "%eax", rgt)
 
 cExpr fc@(FuncCall _ _ _) rgt = let inst = cAStmt fc rgt in
-    (fst inst, "%rax", snd inst)
+    (fst inst, "%rax`fc", snd inst)
 
 -- Note: for-stmt, ret-stmt and write-stmt have empty-expr
 --       return %eax just for ret-stmt

@@ -22,8 +22,8 @@ run is_o (fn:xs) = do
     s <- readFile fn
     case buildAst s of
         Right a -> if is_o
-                   then put $ optimize $ runCodeGen $ get_ast' $ runSema a
-                   else put $ runCodeGen $ get_ast' $ runSema a
+                   then put $ finalDash $ optimize $ runCodeGen $ get_ast' $ runSema a
+                   else put $ finalDash $ runCodeGen $ get_ast' $ runSema a
         a -> putErr a
 
 main :: IO ()

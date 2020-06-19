@@ -24,6 +24,6 @@ empty_st = fromList [
     ("if",     SReserveSymbol), ("else",     SReserveSymbol),
     ("for",    SReserveSymbol), ("do",       SReserveSymbol), ("while", SReserveSymbol),
     ("break",  SReserveSymbol), ("continue", SReserveSymbol),
-    ("printf", SReserveSymbol), ("scanf",    SReserveSymbol),
+    ("printf", SReserveSymbol), ("scanf",    SReserveSymbol), ("read",  SReserveSymbol),
     ("const",  SReserveSymbol), ("char",     SReserveSymbol), ("int",   SReserveSymbol),
     ("void",   SReserveSymbol), ("return",   SReserveSymbol)]
