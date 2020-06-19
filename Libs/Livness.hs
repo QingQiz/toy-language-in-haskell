@@ -31,6 +31,7 @@ livnessAnalysis tacs ids entries =
         res = untilNoChange (buildLiveness (head tacs) (head ids) (head entries) []) id_liv
     in
         trace ("\n---------------------\n" ++ show' (concat tacs) ++ "\n\n"++ show res ++ "\n---------------------\n") res
+
         -- res
     where
         id_entry_t = zip ids entries
@@ -70,13 +71,13 @@ collectLivness tac liv = foldr step [liv] tac where
         | "set" `isPrefixOf` a = specialRemove b init
         | a == "pushq"         = getRegs b ++ init
         | a == "call"          = let n =  read $ last $ splitOn "#" b
-                                 in  "%rax" : (take n $ tail $ tail $ map (!!0) registers) ++ init
+                                 in  "%rax" : (take n $ tail $ tail $ map (!!0) registers) ++ specialRemove' "%rax`fc" init
         | a == "cltd"          = "%rax" : init
         | a == "cltq"          = "%rax" : init
         | a == "cqto"          = "%rax" : init
         | otherwise            =
               let header = (if isRegGroup a then tail $ getGroupVal a else [])
-                           ++ (if head a == '*' then getRegs $ tail a else [])
+                           ++ (if head a == '*' then tail $ getRegs $ tail a else [])
                   init'  = specialRemove a init
                   body   = case getOperand b of
                       (a, [], []) -> func a
@@ -88,6 +89,7 @@ collectLivness tac liv = foldr step [liv] tac where
 
     specialRemove a l = let fixed_reg = rmRegIndex a in
         removeWhere (\x -> x == fixed_reg || x == a) l
+    specialRemove' a l = removeWhere (\x -> rmRegIndex x == a) l
 
 
 fixRegIndexInLiv tac liv =
