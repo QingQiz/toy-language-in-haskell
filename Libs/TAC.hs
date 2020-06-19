@@ -20,7 +20,7 @@ toTAC code = toTAC' code [] Map.empty where
         | isCommd "idiv" c = f "/"
         | isCommd "push" c = f "c"
         | isCommd "set"  c = f "c"
-        | isCommd "call" c = f "c"
+        | isCommd "call" c = f "f"
         | isCommd "cmp"  c = f "~"
         | isCommd "leaq" c = f "l"
         | isCommd "j"    c = f "j"
@@ -52,6 +52,9 @@ toTAC code = toTAC' code [] Map.empty where
         let (a, b) = getOperand c
         in  case op of
             ""  -> ((c, ""), m)
+            "f" -> let (a, b) = trans c "c" m
+                       idx    = 1 + getIdx "%rax" m
+                   in  (a, Map.insert "%rax" idx b)
             "c" -> let (cmd, tgt) = (getCommd c, getCommdTarget c) in
                 ((cmd, fixl tgt), m)
             "=" -> let r = fixr b in ((fst r, fixl a), snd r)
@@ -96,11 +99,12 @@ registerRealloca tacs ids entries =
         liv          = (\id -> let tac = getItem id id_tac
                                    liv = collectLivness tac (getItem id id_liv_final)
                                in  fixRegIndexInLiv tac liv) `map` ids
-        (liv', tac', params) = unpack $ zipWith3 fix ids liv tacs where
+        (liv', tac', params, static) = unpack $ zipWith3 fix ids liv tacs where
             unpack x = let (a, b) = unzip x
                            a'     = concat $ map tail a
                            a''    = head $ map rmDupItem $ fixLocal $ concat a
-                       in  (a'' : (map rmDupItem $ fixLocal a'), concat b, first a)
+                           static = concat $ foldr (\x z -> if null x then z else head x:z) [] a
+                       in  (a'' : (map rmDupItem $ fixLocal a'), concat b, first a, filter (\x -> (not . isInfixOf "rbp") x) static)
 
             first (l:ls) = if null l then first ls else head l
 
@@ -148,10 +152,12 @@ registerRealloca tacs ids entries =
                 g_vars    = filter (\x -> "rip" `isInfixOf` x)
                             $ concat
                             $ map (\(a, b) -> getRegs a ++ getRegs b) tac'
-                final     = params ++ func_call ++ ret_val ++ g_vars
-            in  Map.fromList $ zip final $ map rmRegIndex final
+                final     = params ++ func_call ++ ret_val ++ g_vars ++ static
+            in  Map.fromList $ zip final $ map fixRegIndex final
+            where fixRegIndex r = let r' = rmRegIndex r
+                                  in  if isDigit $ last $ init r' then init r' else r'
     in
-        {-trace (unlines $ map show liv') $ -}(func tac' liv' (tail liv') alloc_init [] [] [])
+        trace(show alloc_init)(func tac' liv' (tail liv') alloc_init [] [] [])
     where
         id_entry = Map.fromList $ zip ids entries
         id_tac   = Map.fromList $ zip ids tacs
@@ -163,18 +169,9 @@ registerRealloca tacs ids entries =
         func _ _ _ _ tac spin spout = (reverse tac, reverse spin, reverse spout)
 
         allocaAStep t@(tl, tr) l_up l_down alloc =
-            let
-                regl = getRegs tl
+            let regl = getRegs tl
                 regr = getRegs tr
-                -- (t' , a' , si , so ) = allocaAStep' t  (filter (\x -> x `elem` regl) l_down) l_up   alloc
-                -- (t'', a'', si', so') = allocaAStep' t' (filter (\x -> x `elem` regr) l_down) l_down a'
-                res = allocaAStep' t l_down l_down alloc
-            in
-                res
-                -- trace (show $ (\(_,a,_,_)->a) res) res
-                --- XXX return a * 5 + b -> mul 5 a, add a b, ret b
-                ---     current             mov a b, mul 5 b, add b c, ret c
-                -- (t'', a'', si ++ si', so ++ so')
+            in  allocaAStep' t l_down l_down alloc
 
         regFree l alloc =
             let valid     = filter (\(a, b) -> a `elem` l) $ Map.toList alloc
@@ -263,7 +260,7 @@ registerRealloca tacs ids entries =
                                               free  = reverse $ regFree l alloc
                                               (so, sa) = head same_name -- (orign, allocaed)
                                           in  ([(head free, sa), t'], Map.insert so (head free) alloc, Nothing, Nothing)
-                                    where same_name = filter (\(bef, aft) -> bef /= a && aft == x && bef `elem` l) $ Map.toList alloc
+                                    where same_name = filter (\(bef, aft) -> bef /= reg && aft == x && bef `elem` l) $ Map.toList alloc
 
         -- > fixLocal [["%eax1"], ["%eax2"], ["%eax1"]] == [["%eax1"], ["%eax1", "%eax2"], ["%eax1"]]
         fixLocal liv =
@@ -290,8 +287,7 @@ fromTAC tacs ids entries =
     let
         (tac', spin, spout) = registerRealloca tacs ids entries
     in
-        reduceStackChange $ doTrans tac'
-        -- registerRealloca tacs ids entries
+        reduceUselessCmp $ reduceUselessJmp $ reduceStackChange $ doTrans tac'
     where
         doTrans (t:ts) = trans t ++ doTrans ts
         doTrans _ = []
@@ -301,7 +297,7 @@ fromTAC tacs ids entries =
             | isCmd a && null b = conn1 a : []
             | isCmd a = case getOperand b of
                   (x, [], []) -> conn2 a b : []
-                  (x, y, o)   -> conn3 (getCmd o) x y : []
+                  (x, y, o)   -> conn3 (getCmd o) y x : []
             | otherwise = case getOperand b of
                   (x, [], []) | x == a -> []
                               | head x == '*' -> conn3 "movq" (tail x) a : []
@@ -340,12 +336,29 @@ reduceStackChange code
     | null neg_ref = reduceSubRspAndLeave code
     | otherwise = code
     where ref     = filter (\x ->  "(%rbp" `isInfixOf` x
-                               || ("push"  `isInfixOf` x && not ("\t%rbp" `isInfixOf` x))) code
+                               || ("push"  `isInfixOf` x && not ("\t%rbp" `isInfixOf` x))
+                               ||  "call" `isInfixOf` x) code
           neg_ref = filter (\x -> "\t-"    `isInfixOf` x || " -"   `isInfixOf` x) ref
 
-          reduce f (c:code) | f c = reduce f code
-                            | otherwise = c : reduce f code
-          reduce _ _ = []
+          reduceAllStack = reduce1 (\x -> "rsp" `isInfixOf` x || "rbp" `isInfixOf` x || "leave" `isInfixOf` x)
+          reduceSubRspAndLeave = reduce1 (\x -> ("sub" `isInfixOf` x && "rsp" `isInfixOf` x))
 
-          reduceAllStack = reduce (\x -> "rsp" `isInfixOf` x || "rbp" `isInfixOf` x || "leave" `isInfixOf` x)
-          reduceSubRspAndLeave = reduce (\x -> ("sub" `isInfixOf` x && "rsp" `isInfixOf` x) || "leave" `isInfixOf` x)
+
+reduceUselessJmp = reduce2 f where
+    f c cn = head cn == '.' && "\tj" `isPrefixOf` c && init cn `isSuffixOf` c
+
+
+reduceUselessCmp = reduce2 f where
+    f c cn = ("\tcmp" `isPrefixOf` c || "\ttest" `isPrefixOf` c)
+      && not ("\tj"  `isPrefixOf` cn || "\tset" `isPrefixOf` cn)
+
+
+reduce2 _ [] = []
+reduce2 f code = reduce code (tail code) where
+    reduce (c:cs) (cn:cns) | f c cn = reduce cs cns
+                           | otherwise = c : reduce cs cns
+    reduce c [] = c
+
+reduce1 f (c:code) | f c = reduce1 f code
+                   | otherwise = c : reduce1 f code
+reduce1 _ _ = []
