@@ -97,8 +97,7 @@ buildCFG code =
         makeId l = zipWith bind len l where
             bind len l = zip [len..] l
 
-            len = let l' = prefixSum $ map length l in
-                map (\x -> x - head l') l'
+            len = let (h:ls) = prefixSum $ map length l in 0:map (\x -> x - 1) ls
 
             prefixSum l = prefixSum' l 0 [] where
                 prefixSum' (x:xs) z l = prefixSum' xs (z+x) $ (z+x):l
@@ -109,4 +108,3 @@ getBlockById id (CFG _ blks) = (\(Just x) -> x) $ Map.lookup id blks
 
 
 cfgToCodes cfg = (++) (getHeader cfg) $ concat $ map getCode $ snd $ unzip $ Map.toList $ getBasicBlocks cfg
-
