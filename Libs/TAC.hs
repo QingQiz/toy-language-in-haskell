@@ -152,7 +152,10 @@ registerRealloca tacs ids entries =
                 g_vars    = filter (\x -> "rip" `isInfixOf` x)
                             $ concat
                             $ map (\(a, b) -> getRegs a ++ getRegs b) tac'
-                final     = params ++ func_call ++ ret_val ++ g_vars ++ static
+                fc_ret    = filter (\x -> "`fc" `isInfixOf` x)
+                            $ concat
+                            $ map (\(a, b) -> getRegs a ++ getRegs b) tac'
+                final     = params ++ func_call ++ ret_val ++ g_vars ++ static ++ fc_ret
             in  Map.fromList $ zip final $ map fixRegIndex final
             where fixRegIndex r = let r' = rmRegIndex r
                                   in  if isDigit $ last $ init r' then init r' else r'
@@ -171,7 +174,7 @@ registerRealloca tacs ids entries =
         allocaAStep t@(tl, tr) l_up l_down alloc =
             let regl = getRegs tl
                 regr = getRegs tr
-            in  allocaAStep' t l_down l_down alloc
+            in  allocaAStep' t (regl ++ regr) l_down alloc
 
         regFree l alloc =
             let valid     = filter (\(a, b) -> a `elem` l) $ Map.toList alloc
@@ -311,10 +314,10 @@ fromTAC tacs ids entries =
                             | o == "*" && x == "$1" -> trans (a, y)
                             | o == "*" && y == "$1" -> trans (a, x)
                             | o == "/" && x == "$0" -> trans (a, "$0")
+                            | o == "/" && y == "$1" -> trans (a, x)
                             | o == "/"  -> conn2 "idivq" y : []
                             | x == a -> conn3 (getCmd o) y a : []
                             | y == a && (o == "*" || o == "+") -> conn3 (getCmd o) x a : []
-                            | o == "/" && y == "$1" -> trans (a, x)
                             | otherwise -> trans (a, x) ++ trans (a, a ++ o ++ y)
 
         getCmd op = case op of
