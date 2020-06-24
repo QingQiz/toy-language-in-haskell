@@ -4,6 +4,7 @@ import Debug.Trace
 import Register
 import Functions
 import Data.List
+import Data.Char
 import Data.List.Split
 import qualified Data.Map as Map
 
@@ -71,7 +72,8 @@ collectLivness tac liv = foldr step [liv] tac where
         | "set" `isPrefixOf` a = specialRemove b init
         | a == "pushq"         = getRegs b ++ init
         | a == "call"          = let n =  read $ last $ splitOn "#" b
-                                 in  "%rax" : (take n $ tail $ tail $ map (!!0) registers) ++ specialRemove' "%rax`fc" init
+                                 in  "%rax" : (map fixRegIndex $ take n $ tail $ tail $ map (!!0) registers)
+                                     ++ specialRemove' "%rax`fc" init
         | a == "cltd"          = "%rax" : init
         | a == "cltq"          = "%rax" : init
         | a == "cqto"          = "%rax" : init
@@ -90,6 +92,8 @@ collectLivness tac liv = foldr step [liv] tac where
     specialRemove a l = let fixed_reg = rmRegIndex a in
         removeWhere (\x -> x == fixed_reg || x == a) l
     specialRemove' a l = removeWhere (\x -> rmRegIndex x == a) l
+
+    fixRegIndex r = if isDigit $ last r then r ++ "x" else r
 
 
 fixRegIndexInLiv tac liv =
