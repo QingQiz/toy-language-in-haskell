@@ -40,11 +40,6 @@ toTAC code = toTAC' code [] Map.empty where
             (x:[]) -> (x, "")
             _ -> ("", "")
 
-    isCommd c c' = ("\t" ++ c) `isPrefixOf` c' || c `isPrefixOf` c'
-
-    getCommd = head . tail . splitOn "\t"
-    getCommdTarget = last . splitOn "\t"
-
     findNearestPush res = let (a, b) = break (isCommd "push" . fst) res in
         (snd $ head b, a ++ tail b)
 
@@ -160,7 +155,7 @@ registerRealloca tacs ids entries =
             where fixRegIndex r = let r' = rmRegIndex r
                                   in  if isDigit $ last $ init r' then init r' else r'
     in
-        trace(show alloc_init)(func tac' liv' (tail liv') alloc_init [] [] [])
+        (func tac' liv' (tail liv') alloc_init [] [] [])
     where
         id_entry = Map.fromList $ zip ids entries
         id_tac   = Map.fromList $ zip ids tacs
@@ -207,9 +202,11 @@ registerRealloca tacs ids entries =
                                       (alloc', spout) = spillOut reg_in_use alloc
                                       (alloc'', _) = tryAlloc r alloc'
                                   in  (alloc'', Just spout)
-                            | r `elem` regh = case filter (\x -> x `elem` regt) regs of
-                                  []   -> deft
-                                  ri   -> (Map.insert r (head ri  ) alloc, Nothing)
+                            | r `elem` regh = let regt' = map rmRegIndex regt
+                                                  l'    = map rmRegIndex l
+                                              in  case filter (\x -> x `elem` regt' && x `notElem` l') regs of
+                                                      [] -> deft
+                                                      ri -> (Map.insert r (head ri) alloc, Nothing)
                             | otherwise = deft
                             where regh  = getRegs (fst t)
                                   regt  = getRegs (snd t)
@@ -299,14 +296,23 @@ fromTAC tacs ids entries =
             | isLabel a = a : []
             | isCmd a && null b = conn1 a : []
             | isCmd a = case getOperand b of
-                  (x, [], []) -> conn2 a b : []
+                  (x, [], []) | head x == '*' -> conn2 a (tail b) : []
+                              | otherwise     -> conn2 a b : []
                   (x, y, o)   -> conn3 (getCmd o) y x : []
             | otherwise = case getOperand b of
                   (x, [], []) | x == a -> []
+                              | isRegGroup x && isRegGroup a ->
+                                    let reg = last $ getGroupVal x
+                                    in  conn2 "pushq" reg  :
+                                        conn3 "movq" x reg :
+                                        conn3 "movq" reg a :
+                                        conn2 "popq" reg   :
+                                        []
                               | head x == '*' -> conn3 "movq" (tail x) a : []
                               | head a == '*' -> conn3 "movq" x (tail a) : []
                               | isRegGroup x || isRegGroup a -> conn3 "leaq" x a : []
-                              | otherwise     -> conn3 "movq" x a : []
+                              | otherwise -> conn3 "movq" x a : []
+
                   (x, y, o) | o == "+" && x == "$0" -> trans (a, y)
                             | o == "+" && y == "$0" -> trans (a, x)
                             | o == "-" && y == "$0" -> trans (a, x)
@@ -329,9 +335,10 @@ fromTAC tacs ids entries =
         isCmd = not . isReg
         isLabel = elem ':'
 
-        conn1 a     = "\t" ++ a
-        conn2 a b   = "\t" ++ a ++ "\t" ++ b
-        conn3 a b c = "\t" ++ a ++ "\t" ++ b ++ ", " ++ c
+        conn1 a     = "\t" ++ fixHead a
+        conn2 a b   = "\t" ++ fixHead a ++ "\t" ++ fixHead b
+        conn3 a b c = "\t" ++ fixHead a ++ "\t" ++ fixHead b ++ ", " ++ fixHead c
+        fixHead r = if head r == '*' then tail r else r
 
 
 reduceStackChange code
