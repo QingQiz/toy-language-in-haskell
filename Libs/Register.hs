@@ -27,7 +27,7 @@ get_reg_index x = (!!) registers $ fromMaybe $ elemIndex True $ map (x `elem`) r
           fromMaybe Nothing = error $ show x
 
 get_low_reg x = last $ get_reg_index x
-get_high_reg x = if last x == ')' then x else head $ get_reg_index x
+get_high_reg x = if last x == ')' || '`' `elem` x then x else head $ get_reg_index x
 
 get_free_reg xs = registers !! ((\(Just x)->x) $ elemIndex True
     $ map (all (==False) . map (`isInfixOf` (concat xs))) registers) !! 0

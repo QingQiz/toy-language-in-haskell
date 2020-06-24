@@ -105,7 +105,7 @@ globalConstCopyPropagation tacs ids entries =
                     $ map (\x@(id, _) -> (,) id (ud, buildStat ud x))
                     $ Map.toList id_tac
                 stat = untilNoChange updateStat stat_init
-            in  trace (show stat_init ++ show a ++ show b ++ show stat) $ doReplace (a, b) stat id_tac
+            in  doReplace (a, b) stat id_tac
             where
                 doReplace (a, b) id_stat id_tac = Map.fromList $ map doReplace' (Map.toList id_tac) where
                     doReplace' (id, tac)
@@ -123,7 +123,7 @@ globalConstCopyPropagation tacs ids entries =
                     | otherwise =
                           let l     = filter (\(ca, cb) -> rmRegIndex ca == rmRegIndex a) tac
                               b'    = if null l then ud else snd $ last l
-                          in  trace(show a ++ show b ++ show b' ++ show tac) $ meet init b'
+                          in  meet init b'
 
                 -- update stat by stat of other basic block
                 updateStat id_stat = Map.fromList $ map (\id -> (,) id $ updateStat' id) ids where
@@ -143,8 +143,6 @@ globalConstCopyPropagation tacs ids entries =
                  | a == b  = a
 
 
--- XXX a = x(rip); *a = b; a = x(rip); a = a + 8; *a = c
---  -> a = x(rip); *a = b; a = a + 8; *a = c
 copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
     cP (c:cs) res eq = cP cs ((doReplace c eq) : res) (update c eq)
     cP [] res _ = reverse res
