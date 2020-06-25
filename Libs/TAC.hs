@@ -97,15 +97,31 @@ registerRealloca tacs ids entries =
                                    liv = collectLivness tac (getItem id id_liv_final)
                                in  fixRegIndexInLiv tac liv) `map` ids
         (liv', tac', params, static) = unpack $ zipWith3 fix ids liv tacs where
-            unpack x = let (a, b) = unzip x
-                           a'     = concat $ map tail a
-                           a''    = head $ map rmDupItem $ fixLocal $ concat a
-                           static = concat $ foldr (\x z -> if null x then z else head x:z) [] a
-                       in  (a'' : (map rmDupItem $ fixLocal a'), concat b, first a, filter (\x -> (not . isInfixOf "rbp") x) static)
+            unpack x =
+                let (ids, livs, tacs) = unzip3 x
+                    id_tac = Map.fromList $ zip ids tacs
+                    livs'  = concat $ map tail livs
+                    livs'' = head $ map rmDupItem $ fixLocal $ concat livs
+                    -- a register who is read before write is a local variable
+                    static = map (\x -> removeWhere ("rbp" `isInfixOf`) $ if null x then [] else head x) livs
+
+                    -- the last write of a local variable in a basic block shoule be pre-allocated
+                    func (id, sta) =
+                        let ups  = map fst $ filter (\(id', entry) -> id `elem` entry) $ zip ids entries
+                            tacs = map (\id -> getItem id id_tac) ups
+                            sta' = map rmRegIndex sta
+                        in  concat [findLastWrite a b | a <- sta', b <- tacs]
+                        where findLastWrite r tac =
+                                  let (a, b) = break (\(a, b) -> rmRegIndex a == r) $ reverse tac
+                                  in  if null b
+                                      then []
+                                      else [fst $ head b]
+                    static' = rmDupItem $ concat $ (++) static $ map func $ zip ids static
+                in  (livs'' : (map rmDupItem $ fixLocal livs'), concat tacs, first livs, static')
 
             first (l:ls) = if null l then first ls else head l
 
-            fix id l t = (map (map doFix) l, map (\(a, b) -> (doFix a, doFix b)) t)
+            fix id l t = (id, map (map doFix) l, map (\(a, b) -> (doFix a, doFix b)) t)
                 where
                     f x = "rsp" `isInfixOf` x || "rbp" `isInfixOf` x || "rip" `isInfixOf` x || isConst x
 
@@ -152,26 +168,25 @@ registerRealloca tacs ids entries =
                 fc_ret    = filter (\x -> "`fc" `isInfixOf` x)
                             $ concat
                             $ map (\(a, b) -> getRegs a ++ getRegs b) tac'
-                final     = params ++ func_call ++ ret_val ++ g_vars ++ static ++ fc_ret
+                final     = params ++ func_call ++ ret_val ++ g_vars ++ fc_ret ++ static
             in  Map.fromList $ zip final $ map fixRegIndex final
             where fixRegIndex r = let r' = rmRegIndex r
                                   in  if isDigit $ last $ init r' then init r' else r'
     in
-        (func tac' liv' (tail liv') alloc_init [] [] [])
+        (func tac' (tail liv') alloc_init [] [] [])
     where
-        id_entry = Map.fromList $ zip ids entries
         id_tac   = Map.fromList $ zip ids tacs
         reg_all  = map (!!0) registers
 
-        func (t:tac) (l_up:liv_up) (l_down:liv_down) alloc tac' spin spout =
-            let (t', alloc', spin', spout') = allocaAStep t l_up l_down alloc
-            in  func tac liv_up liv_down alloc' ((reverse t') ++ tac') (spin' : spin) (spout' : spout)
-        func _ _ _ _ tac spin spout = (reverse tac, reverse spin, reverse spout)
+        func (t:tac) (l:liv) alloc tac' spin spout =
+            let (t', alloc', spin', spout') = allocaAStep t l alloc
+            in  func tac liv alloc' ((reverse t') ++ tac') (spin' : spin) (spout' : spout)
+        func _ _ _ tac spin spout = (reverse tac, reverse spin, reverse spout)
 
-        allocaAStep t@(tl, tr) l_up l_down alloc =
+        allocaAStep t@(tl, tr) l alloc =
             let regl = getRegs tl
                 regr = getRegs tr
-            in  allocaAStep' t (regl ++ regr) l_down alloc
+            in  allocaAStep' t (regl ++ regr) l alloc
 
         regFree l alloc =
             let valid     = filter (\(a, b) -> a `elem` l) $ Map.toList alloc
