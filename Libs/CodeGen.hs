@@ -15,7 +15,17 @@ runCodeGen = cProgram
 finalDash code =
     let
         heap_saver = map (\x -> "\t.comm\t." ++ tail x ++ ",8") (map (!!0) registers)
-        func_read = ["\t.globl\tread"]
+        func_print = ["\t.globl\tprint"]
+            ++ conn_lab    "print"
+            ++ conn_inst_s "pushq" "%rbp"
+            ++ conn_inst   "movq" "%rsp" "%rbp"
+            ++ conn_inst   "movq" "%rdi" ".rdi(%rip)"
+            ++ conn_inst   "andq" "$-16" "%rsp"
+            ++ conn_inst_s "call" "printf@PLT"
+            ++ conn_inst   "movq" ".rdi(%rip)" "%rdi"
+            ++ conn_cmd    "leave"
+            ++ conn_cmd    "ret"
+        func_read  = ["\t.globl\tread"]
             ++ conn_lab    "read"
             ++ conn_inst_s "pushq" "%rbp"
             ++ conn_inst   "movq" "%rsp" "%rbp"
@@ -28,7 +38,7 @@ finalDash code =
             ++ conn_inst   "movq" ".rdi(%rip)" "%rdi"
             ++ conn_cmd    "leave"
             ++ conn_cmd    "ret"
-    in  heap_saver ++ func_read ++ (saveRegs $ removeSig code)
+    in  heap_saver ++ func_read ++ func_print ++ (saveRegs $ removeSig code)
     where
         removeSig (c:cs) = let c' = replace "`fc" "" $ head $ splitOn "#" c
                            in  c' : removeSig cs
@@ -376,7 +386,7 @@ cAStmt (Rd _ xs) rgt = (\(a, b) -> (b, a)) $ foldr step (rgt, []) xs
                         ++ conn_inst "movq" "%rax`fc" (fst $ getItem x rgt')
                         ++ zero
 
-cAStmt (Wt _ (Str _ s) es) rgt = cAStmt (FuncCall (0,0) (Identifier (0,0) "printf@PLT") ((pStr s) : es)) rgt
+cAStmt (Wt _ (Str _ s) es) rgt = cAStmt (FuncCall (0,0) (Identifier (0,0) "print") ((pStr s) : es)) rgt
 
 -- return: (result, register where result is, updated register table)
 cExpr :: Ast -> RegTable -> ([String], String, RegTable)
