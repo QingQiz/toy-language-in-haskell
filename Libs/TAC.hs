@@ -24,6 +24,7 @@ toTAC code = toTAC' code [] Map.empty where
         | isCommd "cmp"  c = f "~"
         | isCommd "leaq" c = f "l"
         | isCommd "j"    c = f "j"
+        | isCommd "test" c = f "t"
         | isCommd "pop"  c =
             let (tgt, res') = findNearestPush res
                 c' = head $ conn_inst "movq" tgt (getCommdTarget c)
@@ -52,6 +53,7 @@ toTAC code = toTAC' code [] Map.empty where
                    in  (a, Map.insert "%rax" idx b)
             "c" -> let (cmd, tgt) = (getCommd c, getCommdTarget c) in
                 ((cmd, fixl tgt), m)
+            "t" -> (("test", fixl a), m)
             "=" -> let r = fixr b in ((fst r, fixl a), snd r)
             "l" -> let r = fixr b in ((fst r, tail $ fixl a), snd r)
             "/" -> let r = fixr b ; b = "%rax" in
@@ -296,7 +298,8 @@ fromTAC tacs ids entries =
             | isLabel a = a : []
             | isCmd a && null b = conn1 a : []
             | isCmd a = case getOperand b of
-                  (x, [], []) | head x == '*' -> conn2 a (tail b) : []
+                  (x, [], []) | a == "test"   -> conn3 "testq" x x : []
+                              | head x == '*' -> conn2 a (tail b) : []
                               | otherwise     -> conn2 a b : []
                   (x, y, o)   -> conn3 (getCmd o) y x : []
             | otherwise = case getOperand b of

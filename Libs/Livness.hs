@@ -77,6 +77,7 @@ collectLivness tac liv = foldr step [liv] tac where
         | a == "cltd"          = "%rax" : init
         | a == "cltq"          = "%rax" : init
         | a == "cqto"          = "%rax" : init
+        | a == "test"          = b : init
         | otherwise            =
               let header = (if isRegGroup a then tail $ getGroupVal a else [])
                            ++ (if head a == '*' then tail $ getRegs $ tail a else [])
