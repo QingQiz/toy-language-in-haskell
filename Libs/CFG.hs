@@ -52,16 +52,12 @@ buildCFG code =
             merge' [] z = reverse z
 
             cnt a l = length $ filter (\x -> x == a) l
-            fixl x = if length x /= 0
-                     then if "\tj" `isPrefixOf` last x
-                          then init x
-                          else x
-                     else x
-            fixr x = if length x /= 0
-                     then if (head . head) x == '.'
-                          then tail x
-                          else x
-                     else x
+            fixl x | null x = x
+                   | "\tj" `isPrefixOf` last x = init x
+                   | otherwise = x
+            fixr x | null x = x
+                   | (head . head) x == '.' = tail x
+                   | otherwise = x
 
         -- convert code blocks to BasicBlocks
         toBasicBlock bs =
@@ -94,7 +90,8 @@ buildCFG code =
         makeId l = zipWith bind len l where
             bind len l = zip [len..] l
 
-            len = let (h:ls) = prefixSum $ map length l in 0:map (\x -> x - 1) ls
+            len = let l' = prefixSum $ map length l
+                  in  0:l'
 
             prefixSum l = prefixSum' l 0 [] where
                 prefixSum' (x:xs) z l = prefixSum' xs (z+x) $ (z+x):l
