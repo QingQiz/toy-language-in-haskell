@@ -148,8 +148,11 @@ copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
     cP [] res _ = reverse res
 
     update c@(a, b) eq
-        | b == "" || '%' `notElem` a || "%rbp" `isPrefixOf` a || "%rax`fc" `isPrefixOf` b = eq
-        | a == "call" = Map.fromList $ filter (\(a, b) -> (not . isInfixOf "rax") a) $ Map.toList eq
+        | b == "" || "%rbp" `isPrefixOf` a || "%rax`fc" `isPrefixOf` b = eq
+        | a == "call" = Map.fromList
+                        $ filter (\(a, b) -> (not . isInfixOf "rax") a && (not . isInfixOf "rip") a)
+                        $ Map.toList eq
+        | '%' `notElem` a = eq
         | isNotArith b = let res = Map.insert a b eq
                          in  if "rip" `isInfixOf` b && head b /= '*'
                              then Map.insert ("*(" ++ a ++ ")0") ('*':b) res
@@ -166,8 +169,11 @@ commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
     cE [] res _ = reverse res
 
     update (a, b) eq
-        | b == "" || isLetter (head a) || '%' `notElem` b = eq
-        | a == "call" = Map.fromList $ filter (\(a, b) -> (not . isInfixOf "rax") a) $ Map.toList eq
+        | b == "" = eq
+        | a == "call" = Map.fromList
+                        $ filter (\(a, b) -> (not . isInfixOf "rax") a && (not . isInfixOf "rip") a)
+                        $ Map.toList eq
+        | '%' `notElem` b  || isLetter (head a) = eq
         | isNotSimple b = let res = Map.insert b a eq
                           in  if "rip" `isInfixOf` b && head b /= '*'
                               then Map.insert ('*':b) ("*(" ++ a ++ ")0") res
