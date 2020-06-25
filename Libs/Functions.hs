@@ -52,6 +52,11 @@ splitAt3 a b l =
 mergeInto Nothing l = l
 mergeInto (Just x) l = x : l
 
+first f x = head' $ snd $ break f x where head' (x:xs) = x
+
+splitWithFunction code = reverse $ map reverse $ foldl step [[]] code where
+    step z@(x:xs) c = if head c `notElem` ".\t" then [c] : z else (c:x):xs
+
 ----------------------------------------------------------------
 --                functions for registers                     --
 ----------------------------------------------------------------
@@ -107,5 +112,7 @@ isArith r = case getOperand r of
     _           -> True
 isNotArith = not . isArith
 
+isCommd c c' = ("\t" ++ c) `isPrefixOf` c' || c `isPrefixOf` c'
 
-first f x = head' $ snd $ break f x where head' (x:xs) = x
+getCommd = head . tail . splitOn "\t"
+getCommdTarget = last . splitOn "\t"

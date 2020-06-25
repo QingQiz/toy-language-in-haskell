@@ -32,9 +32,6 @@ buildCFG code =
     in
         CFG h $ Map.fromList $ merge $ dropBadBB $ bbs
     where
-        splitWithFunction code = reverse $ map reverse $ foldl step [[]] code where
-            step z@(x:xs) c = if head c `notElem` ".\t" then [c] : z else (c:x):xs
-
         splitWithJumpLabel code = foldr step [[]] code where
             step c z@(x:xs) = case c of
                 '.':cs -> []:(c:x):xs

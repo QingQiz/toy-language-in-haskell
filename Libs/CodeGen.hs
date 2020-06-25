@@ -12,20 +12,62 @@ import qualified Data.Map as Map
 
 runCodeGen = cProgram
 
-finalDash code = ["\t.globl\tread"]
-      ++ conn_lab    "read"
-      ++ conn_inst_s "pushq" "%rbp"
-      ++ conn_inst   "movq" "%rsp" "%rbp"
-      ++ conn_inst   "subq" "$16" "%rsp"
-      ++ conn_inst   "leaq" "(%rsp)" "%rsi"
-      ++ conn_inst_s "call" "scanf@PLT"
-      ++ conn_inst   "movq" "(%rsp)" "%rax"
-      ++ conn_cmd    "leave"
-      ++ conn_cmd    "ret"
-      ++ removeSig code
-    where removeSig (c:cs) = let c' = replace "`fc" "" $ head $ splitOn "#" c
-                             in  c' : removeSig cs
-          removeSig [] = []
+finalDash code =
+    let
+        heap_saver = map (\x -> "\t.comm\t." ++ tail x ++ ",8") (map (!!0) registers)
+        func_read = ["\t.globl\tread"]
+            ++ conn_lab    "read"
+            ++ conn_inst_s "pushq" "%rbp"
+            ++ conn_inst   "movq" "%rsp" "%rbp"
+            ++ conn_inst   "subq" "$16" "%rsp"
+            ++ conn_inst   "leaq" "(%rsp)" "%rsi"
+            ++ conn_inst_s "call" "scanf@PLT"
+            ++ conn_inst   "movq" "(%rsp)" "%rax"
+            ++ conn_cmd    "leave"
+            ++ conn_cmd    "ret"
+    in  heap_saver ++ func_read ++ (saveRegs $ removeSig code)
+    where
+        removeSig (c:cs) = let c' = replace "`fc" "" $ head $ splitOn "#" c
+                           in  c' : removeSig cs
+        removeSig [] = []
+
+        collectRegsW code = collect code []
+            where
+                collect (c:cs) res
+                    | isCommd "ret" c   = res
+                    | ',' `notElem` c   = collect cs res
+                    | isRegGroup target = collect cs res
+                    | otherwise         = collect cs (target : res)
+                    where target = last $ splitOn ", " c
+                collect _ res = res
+
+        saveToStack regs = let regs' = filter (/="%rax") $ rmDupItem regs
+                           in  (map (\x -> "\tpushq\t" ++ x) regs', map (\x -> "\tpopq\t" ++ x) $ reverse regs')
+        saveToHeap  regs =
+            let regs' = filter (/="%rax") $ rmDupItem regs
+            in  ((map (\x -> "\tmovq\t" ++ x ++ ", " ++ toHeap x) regs'),
+                 (map (\x -> "\tmovq\t" ++ toHeap x ++ ", " ++ x) regs'))
+            where toHeap r = "." ++ tail r ++ "(%rip)"
+
+        saveRegForAFunc code@(c:cs) =
+            let regs   = collectRegsW code
+                tStack = saveToStack regs
+                tHeap  = saveToHeap  regs
+            in  (:) c $ case cs of
+                (a@"\tpushq\t%rbp":b@"\tmovq\t%rsp, %rbp":c':cs')
+                    | "subq" `isInfixOf` c' && "%rsp" `isInfixOf` c' ->
+                          (a:b:c':[]) ++ fst tStack ++ cs'_body      ++ snd tStack ++ cs'_next
+                    | otherwise ->
+                          (a:b:[])    ++ fst tStack ++ (c':cs'_body) ++ snd tStack ++ cs'_next
+                    where  (cs'_body, cs'_next) = break (=="\tleave") cs'
+                cs' -> let (cs'_body, cs'_next) = break (\x -> x == "\tleave" || x == "\tret") cs'
+                       in  fst tHeap ++ cs'_body ++ snd tHeap ++ cs'_next
+        saveRegs code =
+            let (h:fs) = splitWithFunction code
+            in  foldr (++) [] (h : map saveRegForAFunc fs)
+
+
+
 
 cProgram :: Ast -> [String]
 cProgram (Program _ _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fds)
