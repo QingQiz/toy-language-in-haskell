@@ -38,11 +38,18 @@ finalDash code =
             ++ conn_inst   "movq" ".rdi(%rip)" "%rdi"
             ++ conn_cmd    "leave"
             ++ conn_cmd    "ret"
-    in  heap_saver ++ func_read ++ func_print ++ (saveRegs $ removeSig code)
+    in  heap_saver ++ func_read ++ func_print ++ (saveRegs $ fixCode code)
     where
-        removeSig (c:cs) = let c' = replace "`fc" "" $ head $ splitOn "#" c
-                           in  c' : removeSig cs
-        removeSig [] = []
+        fixCode (c:cs)
+            | isCommd "set" c' = let cmd = getCommd c'
+                                     tgt = getCommdTarget c'
+                                     tgt_low = get_low_reg tgt
+                                 in  conn_inst_s cmd tgt_low ++ conn_inst "movzbq" tgt_low tgt ++ fixCode cs
+            | otherwise = c' : fixCode cs
+            where c' = removeSig c
+        fixCode [] = []
+
+        removeSig c = replace "`fc" "" $ head $ splitOn "#" c
 
         collectRegsW code = collect code []
             where

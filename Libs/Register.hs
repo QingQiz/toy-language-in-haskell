@@ -5,20 +5,20 @@ import Data.Map as Map hiding (map)
 
 registers :: [[String]]
 registers = [
-    ["%rax", "%eax",  "%ax",  "%al"],
-    ["%rbx", "%ebx",  "%bx",  "%bl"],
-    ["%rdi", "%edi",  "%di", "%dil"],
-    ["%rsi", "%esi",  "%si", "%sil"],
-    ["%rdx", "%edx",  "%dx",  "%dl"],
-    ["%rcx", "%ecx",  "%cx",  "%cl"],
-    [ "%r8", "%r8d", "%r8w", "%r8b"],
-    [ "%r9", "%r9d", "%r9w", "%r9b"],
-    ["%r10", "r10d", "r10w", "r10b"],
-    ["%r11", "r11d", "r11w", "r11b"],
-    ["%r12", "r12d", "r12w", "r12b"],
-    ["%r13", "r13d", "r13w", "r13b"],
-    ["%r14", "r14d", "r14w", "r14b"],
-    ["%r15", "r15d", "r15w", "r15b"]]
+    ["%rax", "%eax" , "%ax"  , "%al"  ],
+    ["%rbx", "%ebx" , "%bx"  , "%bl"  ],
+    ["%rdi", "%edi" , "%di"  , "%dil" ],
+    ["%rsi", "%esi" , "%si"  , "%sil" ],
+    ["%rdx", "%edx" , "%dx"  , "%dl"  ],
+    ["%rcx", "%ecx" , "%cx"  , "%cl"  ],
+    [ "%r8", "%r8d" , "%r8w" , "%r8b" ],
+    [ "%r9", "%r9d" , "%r9w" , "%r9b" ],
+    ["%r10", "%r10d", "%r10w", "%r10b"],
+    ["%r11", "%r11d", "%r11w", "%r11b"],
+    ["%r12", "%r12d", "%r12w", "%r12b"],
+    ["%r13", "%r13d", "%r13w", "%r13b"],
+    ["%r14", "%r14d", "%r14w", "%r14b"],
+    ["%r15", "%r15d", "%r15w", "%r15b"]]
 
 clr_reg r = "\tmovq\t$0, " ++ r
 
