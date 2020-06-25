@@ -19,10 +19,13 @@ finalDash code =
             ++ conn_lab    "read"
             ++ conn_inst_s "pushq" "%rbp"
             ++ conn_inst   "movq" "%rsp" "%rbp"
-            ++ conn_inst   "subq" "$16" "%rsp"
+            ++ conn_inst   "movq" "%rdi" ".rdi(%rip)"
+            ++ conn_inst   "subq" "$8" "%rsp"
+            ++ conn_inst   "andq" "$-16" "%rsp"
             ++ conn_inst   "leaq" "(%rsp)" "%rsi"
             ++ conn_inst_s "call" "scanf@PLT"
             ++ conn_inst   "movq" "(%rsp)" "%rax"
+            ++ conn_inst   "movq" ".rdi(%rip)" "%rdi"
             ++ conn_cmd    "leave"
             ++ conn_cmd    "ret"
     in  heap_saver ++ func_read ++ (saveRegs $ removeSig code)
@@ -50,7 +53,7 @@ finalDash code =
             where toHeap r = "." ++ tail r ++ "(%rip)"
 
         saveRegForAFunc code@(c:cs) =
-            let regs   = collectRegsW code
+            let regs   = filter (\x -> x /= "%rbp" && x /= "%rsp") $ collectRegsW code
                 tStack = saveToStack regs
                 tHeap  = saveToHeap  regs
             in  (:) c $ case cs of
@@ -65,8 +68,6 @@ finalDash code =
         saveRegs code =
             let (h:fs) = splitWithFunction code
             in  foldr (++) [] (h : map saveRegForAFunc fs)
-
-
 
 
 cProgram :: Ast -> [String]
@@ -155,7 +156,7 @@ cLocalVar vds rgt =
         chr_var = map trans $ concat $ map take_name [x | x <- vds, not $ is_int x]
 
         int_rgt = for_siz 8 int_var (if null offset then 0 else minimum offset) []
-        chr_rgt = for_siz 8 chr_var (fst int_rgt) []
+        chr_rgt = for_siz 1 chr_var (fst int_rgt) []
 
         regs = fst . unzip . snd . unzip . Map.toList . snd
         clr_var = concat $ map (conn_inst "movq" "$0") $ (regs int_rgt) ++ (regs chr_rgt)
@@ -170,8 +171,9 @@ cLocalVar vds rgt =
 
         take_name = \(VarDef _ _ n) -> n
 
-        for_siz siz ((name, len):xs) oft res = for_siz siz xs (oft - siz - len * siz)
-            $ (name, ((show $ oft - len * siz) ++ "(%rbp)", siz)) : res
+        for_siz siz' ((name, len):xs) oft res =
+            for_siz siz xs (oft - siz - len * siz) $ (name, ((show $ oft - len * siz) ++ "(%rbp)", siz')) : res
+            where siz = 8
         for_siz _ [] oft res = (oft, Map.fromList res)
 
 
