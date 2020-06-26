@@ -41,12 +41,13 @@ finalDash code =
     in  heap_saver ++ func_read ++ func_print ++ (saveRegs $ fixCode code)
     where
         fixCode (c:cs)
-            | isCommd "set" c' = let cmd = getCommd c'
-                                     tgt = getCommdTarget c'
-                                     tgt_low = get_low_reg tgt
-                                 in  conn_inst_s cmd tgt_low ++ conn_inst "movzbq" tgt_low tgt ++ fixCode cs
+            | isCommd "set" c' && "%r" `isPrefixOf` tgt =
+                  conn_inst_s cmd tgt_low ++ conn_inst "movzbq" tgt_low tgt ++ fixCode cs
             | otherwise = c' : fixCode cs
             where c' = removeSig c
+                  cmd = getCommd c'
+                  tgt = getCommdTarget c'
+                  tgt_low = get_low_reg tgt
         fixCode [] = []
 
         removeSig c = replace "`fc" "" $ head $ splitOn "#" c
@@ -54,23 +55,20 @@ finalDash code =
         collectRegsW code = collect code []
             where
                 collect (c:cs) res
-                    | isCommd "ret" c   = res
                     | ',' `notElem` c   = collect cs res
                     | isRegGroup target = collect cs res
                     | otherwise         = collect cs (target : res)
                     where target = last $ splitOn ", " c
-                collect _ res = res
+                collect _ res = rmDupItem
+                    $ filter (\x -> x /= "%rbp" && x /= "%rsp" && x /= "%rax" && "%r" `isPrefixOf` x) res
 
-        saveToStack regs = let regs' = filter (/="%rax") $ rmDupItem regs
-                           in  (map (\x -> "\tpushq\t" ++ x) regs', map (\x -> "\tpopq\t" ++ x) $ reverse regs')
-        saveToHeap  regs =
-            let regs' = filter (/="%rax") $ rmDupItem regs
-            in  ((map (\x -> "\tmovq\t" ++ x ++ ", " ++ toHeap x) regs'),
-                 (map (\x -> "\tmovq\t" ++ toHeap x ++ ", " ++ x) regs'))
+        saveToStack regs = (map (\x -> "\tpushq\t" ++ x) regs, map (\x -> "\tpopq\t" ++ x) $ reverse regs)
+        saveToHeap  regs = ((map (\x -> "\tmovq\t" ++ x ++ ", " ++ toHeap x) regs)
+                           ,(map (\x -> "\tmovq\t" ++ toHeap x ++ ", " ++ x) regs))
             where toHeap r = "." ++ tail r ++ "(%rip)"
 
         saveRegForAFunc code@(c:cs) =
-            let regs   = filter (\x -> x /= "%rbp" && x /= "%rsp") $ collectRegsW code
+            let regs   = collectRegsW code
                 tStack = saveToStack regs
                 tHeap  = saveToHeap  regs
             in  (:) c $ case cs of
@@ -442,7 +440,7 @@ cExpr (BinNode op _ l r) rgt =
                if l == "%rax" then
                    conn_inst "movq" l l' ++ conn_inst "movq" r "%rax" ++ ["\tcqto", "\tidivq\t" ++ l']
                else
-                   conn_inst "movq" r "%rax" ++ ["\tcltd", "\tidivq\t" ++ l]
+                   conn_inst "movq" r "%rax" ++ ["\tcqto", "\tidivq\t" ++ l]
         bind Or  l r =
             let
                 l1 = get_label rgt''
