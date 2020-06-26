@@ -112,3 +112,76 @@ reduce2 f code = reduce code (tail code) where
 reduce1 f (c:code) | f c = reduce1 f code
                    | otherwise = c : reduce1 f code
 reduce1 _ _ = []
+
+
+instLower (c1:c2:cs) = let merged = mergeCalc c1 c2
+                       in  if null merged
+                           then c1 : instLower (c2 : cs)
+                           else merged ++ instLower cs
+instLower x = x
+
+mergeCalc c1 c2
+    | head c1 /= '\t' = []
+    -- mov  $2, %r
+    -- imul %s, %r  -> lea (,%s,2), %r
+    | b1 == b2 && cmd1 == "movq" && isConst a1 && cmd2 == "imulq" && isSimpleReg a2 && validConst a1 =
+          conn_inst "leaq" (lea "" "" a2 $ tail a1) b1
+    -- mov  $s, %r
+    -- imul $2, %r  -> lea (,%s,2), %r
+    | b1 == b2 && cmd1 == "movq" && isSimpleReg a1 && cmd2 == "imulq" && isConst a2 && validConst a2 =
+          conn_inst "leaq" (lea "" "" a1 $ tail a2) b1
+    -- mov  $2, %r
+    -- add  %s, %r  -> lea 2(%s), %r
+    | b1 == b2 && cmd1 == "movq" && isConst a1 && cmd2 == "addq" && isSimpleReg a2 =
+          conn_inst "leaq" (tail a1 ++ "(" ++ a2 ++ ")") b1
+    -- mov  %s, %r
+    -- add  $2, %r  -> lea 2(%s), %r
+    | b1 == b2 && cmd1 == "movq" && isSimpleReg a1 && cmd2 == "addq" && isConst a2 =
+          conn_inst "leaq" (tail a2 ++ "(" ++ a1 ++ ")") b1
+    -- mov  %s, %r
+    -- sub  $2, %r  -> lea -2(%s), %r
+    | b1 == b2 && cmd1 == "movq" && isSimpleReg a1 && cmd2 == "subq" && isConst a2 =
+          conn_inst "leaq" (negConst a2 ++ "(" ++ a1 ++ ")") b1
+    -- mov  %s, %r
+    -- add  %t, %r  -> lea (%t,%s), %r
+    | b1 == b2 && cmd1 == "movq" && isSimpleReg a1 && cmd2 == "addq" && isSimpleReg a2 =
+          conn_inst "leaq" ("(" ++ a1 ++ "," ++ a2 ++ ")") b1
+    -- lea (_), %r
+    -- add $2, %r          -> lea 2(_), %r
+    | b1 == b2 && cmd1 == "leaq" && lack1 a1 && cmd2 == "addq" && isConst a2 =
+          conn_inst "leaq" (merge1 (tail a2) a1) b1
+    -- lea (_), %r
+    -- sub $2, %r          -> lea 2(_), %r
+    | b1 == b2 && cmd1 == "leaq" && lack1 a1 && cmd2 == "subq" && isConst a2 =
+          conn_inst "leaq" (merge1 (negConst a2) a1) b1
+    -- lea x(%s), %r
+    -- add %t, %r          -> lea x(%s,%t), %r
+    | b1 == b2 && cmd1 == "leaq" && lack3 a1 && cmd2 == "addq" && isSimpleReg a2 =
+          conn_inst "leaq" (merge3 a2 a1) b1
+    -- lea _(,%s,x), %r
+    -- add %t, %r          -> lea _(%t,%s,x), %r
+    | b1 == b2 && cmd1 == "leaq" && lack2 a1 && cmd2 == "addq" && isSimpleReg a2 =
+          conn_inst "leaq" (merge2 a2 a1) b1
+    | otherwise = []
+    where
+        (cmd1, a1, b1) = getOperand c1
+        (cmd2, a2, b2) = getOperand c2
+        getOperand c = (getCommd c, a, b) where
+            (a, b) = case splitOn ", " $ last $ splitOn "\t" c of
+                (x:y:_) -> (x, y)
+                (x:[]) -> (x, "")
+                _ -> ("", "")
+        negConst c = show $ negate $ read $ tail c
+        validConst a = a `elem` ["$1", "$2", "$4", "$8"]
+        lea a b c d = a ++ "(" ++ b ++ "," ++ c ++ "," ++ d ++ ")"
+
+        isSimpleReg x = isReg x && isSimple x
+
+        lack1 a = head a == '('
+        lack2 a = getGroupVal a !! 1 == ""
+        lack3 a = length (getGroupVal a) == 2
+
+        merge1 a b = a ++ b
+        merge2 a b = let (x1:x2:x3:x4:[]) = getGroupVal b
+                     in  lea x1 a x3 x4
+        merge3 a b = init b ++ "," ++ a ++ ")"
