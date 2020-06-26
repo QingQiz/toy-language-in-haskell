@@ -1,0 +1,12 @@
+int main() {
+	int a[100], i;
+	int n;
+	a[0]=1;
+	a[1]=1;
+	scanf(n);
+	for (i=0;i<n;i=i+1){
+		if (i>1) a[i]=a[i-1]+a[i-2];
+        printf("%lld : %lld\n", i + 1, a[i]);
+	}
+	return 0;
+}
