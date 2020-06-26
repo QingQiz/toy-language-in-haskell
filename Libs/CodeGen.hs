@@ -447,7 +447,7 @@ cExpr (Identifier _ i) rgt = case Map.lookup i rgt of
     -- Just (a, 1) -> (["\tmovzbl\t" ++ a ++ ", %eax", "\tmovsbl\t%al, %eax"], "%eax", rgt)
 
 cExpr fc@(FuncCall _ _ _) rgt = let inst = cAStmt fc rgt in
-    (fst inst, "%rax`fc", snd inst)
+    (fst inst ++ conn_inst "movq" "%rax`fc" "%rbx", "%rbx", snd inst)
 
 -- Note: for-stmt, ret-stmt and write-stmt have empty-expr
 --       return %eax just for ret-stmt
