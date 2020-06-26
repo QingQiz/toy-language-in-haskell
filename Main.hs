@@ -8,6 +8,7 @@ import CodeGen
 import Semantic
 import Functions
 import Optimizer
+import PeepHole
 
 import System.Exit
 import System.Environment
