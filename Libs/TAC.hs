@@ -26,6 +26,7 @@ toTAC code = toTAC' code [] Map.empty where
         | isCommd "leaq" c = f "l"
         | isCommd "j"    c = f "j"
         | isCommd "test" c = f "t"
+        | isCommd "neg"  c = f "n"
         | isCommd "pop"  c =
             let (tgt, res') = findNearestPush res
                 c' = head $ conn_inst "movq" tgt (getCommdTarget c)
@@ -55,6 +56,7 @@ toTAC code = toTAC' code [] Map.empty where
             "c" -> let (cmd, tgt) = (getCommd c, getCommdTarget c) in
                 ((cmd, fixl tgt), m)
             "t" -> (("test", fixl a), m)
+            "n" -> trans (head $ conn_inst "imulq" "$-1" a) "*" m
             "=" -> let r = fixr b in ((fst r, fixl a), snd r)
             "l" -> let r = fixr b in ((fst r, tail $ fixl a), snd r)
             "/" -> let r = fixr b ; b = "%rax" in
@@ -78,7 +80,7 @@ toTAC code = toTAC' code [] Map.empty where
             fixl xi = let x = fixRegG $ fixReg xi in
                 if isReg x
                 then let idx = getIdx x m
-                      in  (if isRegGroup x then "*" else "") ++ x ++ show idx
+                     in  (if isRegGroup x then "*" else "") ++ x ++ show idx
                 else x
             fixr xi = let x = fixRegG $ fixReg xi in
                 if isReg x
@@ -126,10 +128,14 @@ fromTAC tacs ids entries =
                             | o == "+" && y == "$0" -> trans (a, x)
                             | o == "-" && y == "$0" -> trans (a, x)
                             | o == "*" && (x == "$0" || y == "$0") -> trans (a, "$0")
-                            | o == "*" && x == "$1" -> trans (a, y)
-                            | o == "*" && y == "$1" -> trans (a, x)
-                            | o == "/" && x == "$0" -> trans (a, "$0")
-                            | o == "/" && y == "$1" -> trans (a, x)
+                            | o == "*" && x == "$1"  -> trans (a, y)
+                            | o == "*" && y == "$1"  -> trans (a, x)
+                            | o == "*" && x == "$-1" && y == a -> conn2 "negq" y   : []
+                            | o == "*" && x == "$-1" && y /= a -> conn3 "movq" y a : conn2 "negq" a : []
+                            | o == "*" && y == "$-1" && x == a -> conn2 "negq" x   : []
+                            | o == "*" && y == "$-1" && x /= a -> conn3 "movq" x a : conn2 "negq" a : []
+                            | o == "/" && x == "$0"  -> trans (a, "$0")
+                            | o == "/" && y == "$1"  -> trans (a, x)
                             | o == "/" && x == "%rax" -> conn1 "cqto" : conn2 "idivq" y : []
                             | o == "/" && x /= "%rax" -> conn3 "movq" x "%rax" : conn1 "cqto" : conn2 "idivq" y : []
                             | x == a -> conn3 (getCmd o) y a : []
