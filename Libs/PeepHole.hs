@@ -184,6 +184,10 @@ mergeCalc c1 c2
     -- add %t, %r          -> lea _(%t,%s,x), %r
     | b1 == b2 && cmd1 == "leaq" && lack2 a1 && cmd2 == "addq" && isSimpleReg a2 =
           conn_inst "leaq" (merge2 a2 a1) b1
+    -- lea (,%r1,x), %r
+    -- lea _(_,%r), %r   -> lea _(_,%r1,x), %r
+    | b1 == b2 && cmd1 == "leaq" && cmd2 == "leaq" && lack1 a1 && lack2 a1 && lack4 a2 && pos2 a2 == b1 =
+          conn_inst "leaq" (mergeL a2 a1) b1
     | otherwise = []
     where
         (cmd1, a1, b1) = getOperandFromCode c1
@@ -198,11 +202,15 @@ mergeCalc c1 c2
         lack1 a = head a == '('
         lack2 a = getGroupVal a !! 1 == ""
         lack3 a = length (getGroupVal a) == 2
+        lack4 a = length (getGroupVal a) == 3
+
+        pos2  a = getGroupVal a !! 2
 
         merge1 a b = a ++ b
         merge2 a b = let (x1:x2:x3:x4:[]) = getGroupVal b
                      in  lea x1 a x3 x4
         merge3 a b = init b ++ "," ++ a ++ ")"
+        mergeL a b = (fst $ break (==',') a) ++ (snd $ break (==',') b)
 
 
 getOperandFromCode c = (getCommd c, a, b) where
