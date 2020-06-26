@@ -150,16 +150,17 @@ copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
     update c@(a, b) eq
         | b == "" || "%rbp" `isPrefixOf` a || "%rax`fc" `isPrefixOf` b = eq
         | a == "call" = Map.fromList
-                        $ filter (\(a, b) -> (not . isInfixOf "rax") a && (not . isInfixOf "rip") a)
+                        $ filter (\t -> notInTup "rax" t && notInTup "rip" t)
                         $ Map.toList eq
         | "set" `isPrefixOf` a =
-              Map.fromList $ filter (\(x, y) -> x /= b) $ Map.toList eq
+              Map.fromList $ filter (\t -> notInTup b t) $ Map.toList eq
         | '%' `notElem` a = eq
         | isNotArith b = let res = Map.insert a b eq
                          in  if "rip" `isInfixOf` b && head b /= '*'
                              then Map.insert ("*(" ++ a ++ ")0") ('*':b) res
                              else res
         | otherwise = eq
+        where notInTup x (a, b) = (not . isInfixOf x) a && (not . isInfixOf x) b
 
     doReplace x@(a, b) eq
         | null b = x
@@ -174,16 +175,17 @@ commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
     update (a, b) eq
         | b == "" = eq
         | a == "call" = Map.fromList
-                        $ filter (\(a, b) -> (not . isInfixOf "rax") a && (not . isInfixOf "rip") a)
+                        $ filter (\t -> notInTup "rax" t && notInTup "rip" t)
                         $ Map.toList eq
         | "set" `isPrefixOf` a =
-              Map.fromList $ filter (\(x, y) -> x /= b) $ Map.toList eq
+              Map.fromList $ filter (\t -> notInTup b t) $ Map.toList eq
         | '%' `notElem` b  || isLetter (head a) = eq
-        | isNotSimple b = let res = Map.insert b a eq
+        | isReg a && isReg b = let res = Map.insert b a eq
                           in  if "rip" `isInfixOf` b && head b /= '*'
                               then Map.insert ('*':b) ("*(" ++ a ++ ")0") res
                               else res
         | otherwise = eq
+        where notInTup x (a, b) = (not . isInfixOf x) a && (not . isInfixOf x) b
 
     doReplace c@(a, b) eq
         | b == "" = c
