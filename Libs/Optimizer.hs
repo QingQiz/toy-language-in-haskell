@@ -47,12 +47,12 @@ globalOptimizeOnAFunction bbs =
         fromTAC optimized_tac ids entries
     where
         optimizeOnce tacs ids entries =
-            let copy_prog  = map (constFolding . copyPropagation) tacs
+            let copy_prog  = map (\x -> untilNoChange (constFolding . copyPropagation) x) tacs
                 dead_code1 = globalDeadCodeElim copy_prog ids entries
-                expr_elim  = map (constFolding . commonSubexprElim) dead_code1
+                expr_elim  = map (\x -> untilNoChange (constFolding . commonSubexprElim) x) dead_code1
                 dead_code2 = globalDeadCodeElim expr_elim ids entries
                 gcopy_prop = globalConstCopyPropagation dead_code2 ids entries
-            in  map (commonSubexprElim) gcopy_prop
+            in  gcopy_prop
 
 
 globalDeadCodeElim tacs ids entries = untilNoChange (\x -> globalDeadCodeElimOnce x ids entries) tacs
@@ -152,6 +152,8 @@ copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
         | a == "call" = Map.fromList
                         $ filter (\(a, b) -> (not . isInfixOf "rax") a && (not . isInfixOf "rip") a)
                         $ Map.toList eq
+        | "set" `isPrefixOf` a =
+              Map.fromList $ filter (\(x, y) -> x /= b) $ Map.toList eq
         | '%' `notElem` a = eq
         | isNotArith b = let res = Map.insert a b eq
                          in  if "rip" `isInfixOf` b && head b /= '*'
@@ -161,6 +163,7 @@ copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
 
     doReplace x@(a, b) eq
         | null b = x
+        | "set" `isPrefixOf` a = x
         | otherwise = (a, doCopy b eq)
 
 
@@ -173,6 +176,8 @@ commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
         | a == "call" = Map.fromList
                         $ filter (\(a, b) -> (not . isInfixOf "rax") a && (not . isInfixOf "rip") a)
                         $ Map.toList eq
+        | "set" `isPrefixOf` a =
+              Map.fromList $ filter (\(x, y) -> x /= b) $ Map.toList eq
         | '%' `notElem` b  || isLetter (head a) = eq
         | isNotSimple b = let res = Map.insert b a eq
                           in  if "rip" `isInfixOf` b && head b /= '*'
@@ -182,6 +187,7 @@ commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
 
     doReplace c@(a, b) eq
         | b == "" = c
+        | "set" `isPrefixOf` a = c
         | otherwise = case Map.lookup b eq of
               Nothing | isRegGroup b && head b == '*' -> case Map.lookup (tail b) eq of
                             Nothing -> c
