@@ -1,17 +1,13 @@
 module Livness where
 
-import Debug.Trace
 import Register
 import Functions
+
 import Data.List
 import Data.Char
 import Data.List.Split
 import qualified Data.Map as Map
 
-
-
-show' ((a, b):ts) = "\n" ++ (if length a >= 8 then a ++ "" else a ++ "\t") ++ "\t" ++ (if null b then "" else "=\t" ++ b) ++ show' ts
-show' [] = "\n"
 
 livnessAnalysis tacs ids entries =
     let
@@ -29,11 +25,8 @@ livnessAnalysis tacs ids entries =
                 | isRegGroup a && not ("rbp" `isInfixOf` a) = a : findGVar ts
                 | otherwise = findGVar ts
             findGVar _ = []
-        res = untilNoChange (buildLiveness (head tacs) (head ids) (head entries) []) id_liv
     in
-        trace ("\n---------------------\n" ++ show' (concat tacs) ++ "\n\n"++ show res ++ "\n---------------------\n") res
-
-        -- res
+        untilNoChange (buildLiveness (head tacs) (head ids) (head entries) []) id_liv
     where
         id_entry_t = zip ids entries
         id_entry   = Map.fromList id_entry_t

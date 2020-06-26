@@ -1,12 +1,10 @@
 module Optimizer where
 
-import Debug.Trace
-
 import TAC
-
 import CFG
 import Livness
 import Functions
+
 import Data.Char
 import Data.List
 import Data.List.Utils
@@ -15,7 +13,7 @@ import qualified Data.Map as Map
 
 optimize code = untilF cond func code
     where cond now bef = length now > length bef || now == bef
-          func         = ((\x -> trace (unlines x) x) . doGlobalOptimize . buildCFG)
+          func         = (doGlobalOptimize . buildCFG)
 
 -- doLocalOptimize :: CFG -> CFG
 doGlobalOptimize cfg =
@@ -32,8 +30,6 @@ doGlobalOptimize cfg =
             step b [] = [[b]]
 
 
--- show' ((a, b):ts) = "\n" ++ (if length a >= 8 then a ++ "" else a ++ "\t") ++ "\t" ++ (if null b then "" else "=\t" ++ b) ++ show' ts
--- show' [] = "\n"
 globalOptimizeOnAFunction bbs =
     let
         tacs          = map (toTAC . getCode) bbs
@@ -42,8 +38,6 @@ globalOptimizeOnAFunction bbs =
         optimized_tac = untilNoChange (\x -> optimizeOnce x ids entries) tacs
 
     in
-        -- error $ (show' (concat tacs) ++ "\n\n" ++ show' (concat optimized_tac))
-        -- error $ show tacs
         fromTAC optimized_tac ids entries
     where
         optimizeOnce tacs ids entries =
@@ -82,8 +76,6 @@ globalDeadCodeElimOnce tacs ids entries =
 
 globalConstCopyPropagation [] _ _ = []
 globalConstCopyPropagation tacs ids entries =
-    let
-    in
         snd $ unzip $ Map.toList $ foldr forABlock (Map.fromList $ zip ids tacs) ids
     where
         ud = "ud" -- undefiend
@@ -181,9 +173,9 @@ commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
               Map.fromList $ filter (\t -> notInTup b t) $ Map.toList eq
         | '%' `notElem` b  || isLetter (head a) = eq
         | isReg a && isReg b = let res = Map.insert b a eq
-                          in  if "rip" `isInfixOf` b && head b /= '*'
-                              then Map.insert ('*':b) ("*(" ++ a ++ ")0") res
-                              else res
+                               in  if "rip" `isInfixOf` b && head b /= '*'
+                                   then Map.insert ('*':b) ("*(" ++ a ++ ")0") res
+                                   else res
         | otherwise = eq
         where notInTup x (a, b) = (not . isInfixOf x) a && (not . isInfixOf x) b
 
