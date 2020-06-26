@@ -4,6 +4,7 @@ import TAC
 import CFG
 import Livness
 import Functions
+import PeepHole
 
 import Data.Char
 import Data.List
@@ -13,7 +14,7 @@ import qualified Data.Map as Map
 
 optimize code = untilF cond func code
     where cond now bef = length now > length bef || now == bef
-          func         = (doGlobalOptimize . buildCFG)
+          func         = ((\x -> untilNoChange instLower x) . swapInst . doGlobalOptimize . buildCFG)
 
 -- doLocalOptimize :: CFG -> CFG
 doGlobalOptimize cfg =

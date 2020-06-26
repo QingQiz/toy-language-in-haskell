@@ -114,6 +114,26 @@ reduce1 f (c:code) | f c = reduce1 f code
 reduce1 _ _ = []
 
 
+swapInst (c1:c2:c3:cs)
+    | head c1 /= '\t' = c1 : swapInst (c2:c3:cs)
+    | head c2 /= '\t' = c1 : c2 : swapInst (c3:cs)
+    | head c3 /= '\t' = c1 : c2 : c3 : swapInst cs
+    | b1 == "" = c1 : swapInst (c2:c3:cs)
+    | b2 == "" = c1 : c2 : swapInst (c3:cs)
+    | b3 == "" = c1 : c2 : c3 : swapInst cs
+    | b1 == b3 && b2 /= b3
+      && (not . isInfixOf b1) a2
+      && (not . isInfixOf b2) a1
+      && (not . isInfixOf b1) b2
+      && (not . isInfixOf b2) b1 = (c2 : c1 : c3 : swapInst cs)
+    | otherwise = c1 : swapInst (c2:c3:cs)
+    where
+        (cmd1, a1, b1) = getOperandFromCode c1
+        (cmd2, a2, b2) = getOperandFromCode c2
+        (cmd3, a3, b3) = getOperandFromCode c3
+swapInst x = x
+
+
 instLower (c1:c2:cs) = let merged = mergeCalc c1 c2
                        in  if null merged
                            then c1 : instLower (c2 : cs)
@@ -148,6 +168,7 @@ mergeCalc c1 c2
           conn_inst "leaq" ("(" ++ a1 ++ "," ++ a2 ++ ")") b1
     -- lea (_), %r
     -- add $2, %r          -> lea 2(_), %r
+    | b1 == b2 && cmd1 == "leaq" && "rip" `isInfixOf` a1 = []
     | b1 == b2 && cmd1 == "leaq" && lack1 a1 && cmd2 == "addq" && isConst a2 =
           conn_inst "leaq" (merge1 (tail a2) a1) b1
     -- lea (_), %r
@@ -164,13 +185,9 @@ mergeCalc c1 c2
           conn_inst "leaq" (merge2 a2 a1) b1
     | otherwise = []
     where
-        (cmd1, a1, b1) = getOperand c1
-        (cmd2, a2, b2) = getOperand c2
-        getOperand c = (getCommd c, a, b) where
-            (a, b) = case splitOn ", " $ last $ splitOn "\t" c of
-                (x:y:_) -> (x, y)
-                (x:[]) -> (x, "")
-                _ -> ("", "")
+        (cmd1, a1, b1) = getOperandFromCode c1
+        (cmd2, a2, b2) = getOperandFromCode c2
+
         negConst c = show $ negate $ read $ tail c
         validConst a = a `elem` ["$1", "$2", "$4", "$8"]
         lea a b c d = a ++ "(" ++ b ++ "," ++ c ++ "," ++ d ++ ")"
@@ -185,3 +202,10 @@ mergeCalc c1 c2
         merge2 a b = let (x1:x2:x3:x4:[]) = getGroupVal b
                      in  lea x1 a x3 x4
         merge3 a b = init b ++ "," ++ a ++ ")"
+
+
+getOperandFromCode c = (getCommd c, a, b) where
+    (a, b) = case splitOn ", " $ last $ splitOn "\t" c of
+        (x:y:_) -> (x, y)
+        (x:[]) -> (x, "")
+        _ -> ("", "")
