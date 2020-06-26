@@ -79,7 +79,7 @@ collectLivness tac liv = foldr step [liv] tac where
                       (a, [], []) -> func a
                       (a, b , _ ) -> func a ++ func b
               in  header ++ body ++ init'
-              where func a | "rbp" `isInfixOf` a = [a]
+              where func a | "rbp" `isInfixOf` a = getRegs a
                            | isRegGroup a && head a == '*' = tail $ getRegs a
                            | otherwise = getRegs a
 
