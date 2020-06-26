@@ -153,14 +153,10 @@ registerRealloca tacs ids entries =
                         if "rax" `isInfixOf` a then a : findReg is else findReg is
                     findReg (i:is) | otherwise = findReg is
                     findReg [] = []
-                div       = findReg $ findIdx tac' 0 where
-                    findIdx ((a, b):t) n
-                        | a == "cltd" = (:) (n - 1) $ findIdx t (n + 1)
-                        | otherwise   = findIdx t (n + 1)
-                    findIdx [] _ = []
-                    findReg (i:is) | i >= 0 = let (a, _) = tac' !! i in
-                        if "rax" `isInfixOf` a then a : findReg is else findReg is
-                    findReg (i:is) | otherwise = findReg is
+                div       = findReg tac' where
+                    findReg ((a, b):t)
+                        | '/' `elem` b = a : findReg t
+                        | otherwise = findReg t
                     findReg [] = []
                 g_vars    = filter (\x -> "rip" `isInfixOf` x)
                             $ concat
@@ -168,7 +164,7 @@ registerRealloca tacs ids entries =
                 fc_ret    = filter (\x -> "`fc" `isInfixOf` x)
                             $ concat
                             $ map (\(a, b) -> getRegs a ++ getRegs b) tac'
-                final     = params ++ func_call ++ ret_val ++ g_vars ++ fc_ret ++ static
+                final     = params ++ func_call ++ ret_val ++ g_vars ++ fc_ret ++ static ++ div
             in  Map.fromList $ zip final $ map fixRegIndex final
             where fixRegIndex r = let r' = rmRegIndex r
                                   in  if isDigit $ last $ init r' then init r' else r'
@@ -219,11 +215,6 @@ registerRealloca tacs ids entries =
                                       (alloc', spout) = spillOut reg_in_use alloc
                                       (alloc'', _) = tryAlloc r alloc'
                                   in  (alloc'', Just spout)
-                            | r `elem` regh = let regt' = map rmRegIndex regt
-                                                  l'    = map rmRegIndex l
-                                              in  case filter (\x -> x `elem` regt' && x `notElem` l') regs of
-                                                      [] -> deft
-                                                      ri -> (Map.insert r (head ri) alloc, Nothing)
                             | otherwise = deft
                             where regh  = getRegs (fst t)
                                   regt  = getRegs (snd t)
@@ -339,7 +330,8 @@ fromTAC tacs ids entries =
                             | o == "*" && y == "$1" -> trans (a, x)
                             | o == "/" && x == "$0" -> trans (a, "$0")
                             | o == "/" && y == "$1" -> trans (a, x)
-                            | o == "/"  -> conn2 "idivq" y : []
+                            | o == "/" && x == "%rax" -> conn1 "cqto" : conn2 "idivq" y : []
+                            | o == "/" && x /= "%rax" -> conn3 "movq" x "%rax" : conn1 "cqto" : conn2 "idivq" y : []
                             | x == a -> conn3 (getCmd o) y a : []
                             | y == a && (o == "*" || o == "+") -> conn3 (getCmd o) x a : []
                             | otherwise -> trans (a, x) ++ trans (a, a ++ o ++ y)
