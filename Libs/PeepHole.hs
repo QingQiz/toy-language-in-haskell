@@ -10,28 +10,29 @@ import Data.List.Utils
 
 finalDash code =
     let
+        reg_sav = saveToHeap $ take 7 $ drop 1 $ map (!!0) registers
         heap_saver = map (\x -> "\t.comm\t." ++ tail x ++ ",8") (map (!!0) registers)
         func_print = ["\t.globl\tprint"]
             ++ conn_lab    "print"
             ++ conn_inst_s "pushq" "%rbp"
             ++ conn_inst   "movq" "%rsp" "%rbp"
-            ++ conn_inst   "movq" "%rdi" ".rdi(%rip)"
+            ++ fst reg_sav
             ++ conn_inst   "andq" "$-16" "%rsp"
             ++ conn_inst_s "call" "printf@PLT"
-            ++ conn_inst   "movq" ".rdi(%rip)" "%rdi"
+            ++ snd reg_sav
             ++ conn_cmd    "leave"
             ++ conn_cmd    "ret"
         func_read  = ["\t.globl\tread"]
             ++ conn_lab    "read"
             ++ conn_inst_s "pushq" "%rbp"
             ++ conn_inst   "movq" "%rsp" "%rbp"
-            ++ conn_inst   "movq" "%rdi" ".rdi(%rip)"
+            ++ fst reg_sav
             ++ conn_inst   "subq" "$8" "%rsp"
             ++ conn_inst   "andq" "$-16" "%rsp"
             ++ conn_inst   "leaq" "(%rsp)" "%rsi"
             ++ conn_inst_s "call" "scanf@PLT"
             ++ conn_inst   "movq" "(%rsp)" "%rax"
-            ++ conn_inst   "movq" ".rdi(%rip)" "%rdi"
+            ++ snd reg_sav
             ++ conn_cmd    "leave"
             ++ conn_cmd    "ret"
     in  heap_saver ++ func_read ++ func_print ++ (saveRegs $ fixCode code)
