@@ -1,0 +1,51 @@
+name:                c0-cpr
+version:             0.1.0.0
+github:              "QingQiz/c0-cpr"
+license:             BSD3
+author:              "QingQiz"
+copyright:           "2020 QingQiz"
+
+extra-source-files:
+- README.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/QingQiz/c0-cpr#compiler-using-c0-grammar-in-haskell>
+
+dependencies:
+  - base >= 4.7 && < 5
+  - containers
+  - split
+  - MissingH
+  - mtl
+
+
+library:
+  source-dirs: src
+
+executables:
+  cpr:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - c0-cpr
+
+# tests:
+#   c0-cpr-test:
+#     main:                Spec.hs
+#     source-dirs:         test
+#     ghc-options:
+#     - -threaded
+#     - -rtsopts
+#     - -with-rtsopts=-N
+#     dependencies:
+#     - c0-cpr

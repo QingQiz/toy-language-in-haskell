@@ -62,17 +62,10 @@
 
 ## Build & Run
 
-### Dependence
-
-```
-cabal install MissingH
-cabal install split
-```
-
 ### Build
 
 ```shell
-make
+stack build
 ```
 
 ### Run
@@ -80,7 +73,7 @@ make
 > currently we can generate x86-64 asm
 
 ```
-./cpr x.c0 > x.s
+stack run -- x.c0 -O > x.s
 as --64 x.s -o x.o
 ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o /usr/lib/x86_64-linux-gnu/crti.o -lc x.o /usr/lib/x86_64-linux-gnu/crtn.o -o x.out
 ```
