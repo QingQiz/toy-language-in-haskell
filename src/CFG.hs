@@ -28,11 +28,11 @@ buildCFG code =
         (h:xs) = splitWithFunction code
         fs = map splitWithJumpLabel xs
         -- convert code to BasicBlock
-        bbs = concat $ map toBasicBlock $ makeId fs
+        bbs = concatMap toBasicBlock $ makeId fs
     in
-        CFG h $ Map.fromList $ merge $ dropBadBB $ bbs
+        CFG h $ Map.fromList $ merge $ dropBadBB bbs
     where
-        splitWithJumpLabel code = foldr step [[]] code where
+        splitWithJumpLabel = foldr step [[]] where
             step c z@(x:xs) = case c of
                 '.':cs -> []:(c:x):xs
                 '\t':'j':cs -> if null x then [c]:xs else [c]:z
@@ -47,11 +47,11 @@ buildCFG code =
                 if length (getEntry bba) == 1 && cnt idb entries == 1 && head (getEntry bba) == idb
                 then merge' r $ (ida, BasicBlock ida (fixl (getCode bba) ++ fixr (getCode bbb)) $ getEntry bbb):z
                 else merge' (b:r) (a:z)
-                where entries = concat $ map (\(_, b) -> getEntry b) bbs
+                where entries = concatMap (\(_, b) -> getEntry b) bbs
             merge' (x:[]) z = reverse (x:z)
             merge' [] z = reverse z
 
-            cnt a l = length $ filter (\x -> x == a) l
+            cnt a l = length $ filter (==a) l
             fixl x | null x = x
                    | "\tj" `isPrefixOf` last x = init x
                    | otherwise = x
@@ -63,14 +63,14 @@ buildCFG code =
         toBasicBlock bs =
             let
                 jmp = findJmp bs []
-                block_to = (zipWith findLabelId (init bs) jmp) ++ [[fst $ head bs]]
+                block_to = zipWith findLabelId (init bs) jmp ++ [[fst $ head bs]]
                 bbs = bind block_to bs
                 fixed_bbs = init bbs ++ (\(BasicBlock id x t) -> [BasicBlock id x []]) (last bbs)
             in
-                zip (fst $ unzip bs) fixed_bbs
+                zip (map fst bs) fixed_bbs
             where
                 -- find jump target (label name)
-                findJmp (b:bs) z = let x = snd $ break (=='.') (last (snd b)) in
+                findJmp (b:bs) z = let x = dropWhile (/='.') (last (snd b)) in
                     findJmp bs $ (if null x || last x == ':' then "" else x) : z
                 findJmp _ z = reverse z
 
@@ -78,8 +78,8 @@ buildCFG code =
                 findLabelId b label =
                     if label == ""
                     then [fst b + 1]
-                    else (fst $ head $ snd $ break (\inp -> head (snd inp) == label ++ ":") bs)
-                         : (if "jmp" `isInfixOf` (last (snd b)) then [] else [fst b + 1])
+                    else fst (head $ dropWhile (\inp -> head (snd inp) /= label ++ ":") bs)
+                         : [fst b + 1 | not $ "jmp" `isInfixOf` last (snd b)]
 
                 -- convert code block and its jump target to BasicBlock
                 bind block_to bs = zipWith bind' block_to bs where
@@ -88,7 +88,7 @@ buildCFG code =
 
         -- assign id to each code block
         makeId l = zipWith bind len l where
-            bind len l = zip [len..] l
+            bind len = zip [len..]
 
             len = let l' = prefixSum $ map length l
                   in  0:l'
@@ -101,4 +101,4 @@ buildCFG code =
 getBlockById id (CFG _ blks) = (\(Just x) -> x) $ Map.lookup id blks
 
 
-cfgToCodes cfg = (++) (getHeader cfg) $ concat $ map getCode $ snd $ unzip $ Map.toList $ getBasicBlocks cfg
+cfgToCodes cfg = (++) (getHeader cfg) $ concatMap (getCode . snd) $ Map.toList $ getBasicBlocks cfg

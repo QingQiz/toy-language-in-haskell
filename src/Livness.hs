@@ -5,15 +5,15 @@ import Functions
 
 import Data.List
 import Data.Char
+import Data.Maybe
 import Data.List.Split
 import qualified Data.Map as Map
 
 
 livnessAnalysis tacs ids entries =
     let
-        g_vars = filter (\x -> "rip" `isInfixOf` x)
-            $ concat
-            $ map (\(a, b) -> getRegs a ++ getRegs b)
+        g_vars = filter ("rip" `isInfixOf`)
+            $ concatMap (\(a, b) -> getRegs a ++ getRegs b)
             $ concat tacs
         id_liv = (\inp -> Map.insert (last ids) (getItem (last ids) inp ++ ["%rax", "%rsp", "%rbp"] ++ g_vars) inp)
             $ Map.fromList
@@ -65,7 +65,7 @@ collectLivness tac liv = foldr step [liv] tac where
         | "set" `isPrefixOf` a = specialRemove b init
         | a == "pushq"         = getRegs b ++ init
         | a == "call"          = let n =  read $ last $ splitOn "#" b
-                                 in  "%rax" : (map fixRegIndex $ take n $ tail $ tail $ map (!!0) registers)
+                                 in  "%rax" : map fixRegIndex (take n $ tail $ tail $ map (!!0) registers)
                                      ++ specialRemove' "%rax`fc" init
         | a == "cltd"          = "%rax" : init
         | a == "cltq"          = "%rax" : init
@@ -85,7 +85,7 @@ collectLivness tac liv = foldr step [liv] tac where
 
     specialRemove a l = let fixed_reg = rmRegIndex a in
         removeWhere (\x -> x == fixed_reg || x == a) l
-    specialRemove' a l = removeWhere (\x -> rmRegIndex x == a) l
+    specialRemove' a = removeWhere (\x -> rmRegIndex x == a)
 
     fixRegIndex r = if isDigit $ last r then r ++ "x" else r
 
@@ -103,18 +103,18 @@ fixRegIndexInLiv tac liv =
                     in  (r':res, m')
         fixLiv' [] [] _ = []
 
-        getItem' x m = case Map.lookup x m of {Nothing -> 0; Just x -> x}
+        getItem' x m = fromMaybe 0 $ Map.lookup x m
 
         fixRegIndex (a, b) r m =
             let regs = getRegs a ++ getRegs b
-                m'   = foldr (\x z -> updateM x z) m regs
+                m'   = foldr updateM m regs
             in  if getRegIndex r == ""
-                then (r ++ (show $ getItem' r m'), m')
+                then (r ++ show (getItem' r m'), m')
                 else (r, m')
 
         updateM r m = let r' = rmRegIndex r
                           idx_new = getRegIndex r
                           idx_now = getItem' r' m
-                      in  if (read idx_new) > idx_now
+                      in  if read idx_new > idx_now
                           then Map.insert r' (read idx_new) m
                           else m

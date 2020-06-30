@@ -84,7 +84,7 @@ catchPErr pa s = pa `catchError` \err -> case err of
 
 
 satOrError :: (Char -> Bool) -> String -> Parser Char
-satOrError f s = catchPErr (satisfy f) s
+satOrError f = catchPErr (satisfy f)
 
 
 putErr (Left (DefaultError a)) = putStrLn a
@@ -107,10 +107,10 @@ eof = do
 
 string str = string' str `catchPErr` ("Excepted string: " ++ show str) where
     string' "" = return ""
-    string' str@(x:xs) = (char x >> string' xs >> return str)
+    string' str@(x:xs) = char x >> string' xs >> return str
 
 uInt :: Parser Int
-uInt = (fmap read $ ((:) <$> (many space >> (oneOf "123456789")) <*> many digit) <?> string "0")
+uInt = fmap read $ ((:) <$> (many space >> oneOf "123456789") <*> many digit) <?> string "0"
 
 sInt :: Parser Int
 sInt = (string "+" <?> string "-" <?> string "") >>= toInt (many space >> uInt) where
@@ -137,6 +137,6 @@ chainl op p = (many space >> p) >>= for_rest where
 
 -- parse `op (op (op a))'
 unaryOpChain:: Parser (a -> a) -> Parser a -> Parser a
-unaryOpChain op p = (many (many space >> op)) >>= trans p where
-    trans x fs = foldr (\f z -> f <$> z) x fs
+unaryOpChain op p = many (many space >> op) >>= trans p where
+    trans = foldr (<$>)
 

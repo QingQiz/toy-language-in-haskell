@@ -35,7 +35,7 @@ finalDash code =
             ++ snd reg_sav
             ++ conn_cmd    "leave"
             ++ conn_cmd    "ret"
-    in  heap_saver ++ func_read ++ func_print ++ (saveRegs $ fixCode code)
+    in  heap_saver ++ func_read ++ func_print ++ saveRegs (fixCode code)
     where
         fixCode (c:cs)
             | isCommd "set" c' && "%r" `isPrefixOf` tgt =
@@ -59,9 +59,9 @@ finalDash code =
                 collect _ res = rmDupItem
                     $ filter (\x -> x /= "%rbp" && x /= "%rsp" && x /= "%rax" && "%r" `isPrefixOf` x) res
 
-        saveToStack regs = (map (\x -> "\tpushq\t" ++ x) regs, map (\x -> "\tpopq\t" ++ x) $ reverse regs)
-        saveToHeap  regs = ((map (\x -> "\tmovq\t" ++ x ++ ", " ++ toHeap x) regs)
-                           ,(map (\x -> "\tmovq\t" ++ toHeap x ++ ", " ++ x) regs))
+        saveToStack regs = (map ("\tpushq\t"++) regs, map ("\tpopq\t"++) $ reverse regs)
+        saveToHeap  regs = (map (\x -> "\tmovq\t" ++ x ++ ", " ++ toHeap x) regs
+                           ,map (\x -> "\tmovq\t" ++ toHeap x ++ ", " ++ x) regs)
             where toHeap r = "." ++ tail r ++ "(%rip)"
 
         saveRegForAFunc code@(c:cs) =
@@ -71,15 +71,15 @@ finalDash code =
             in  (:) c $ case cs of
                 (a@"\tpushq\t%rbp":b@"\tmovq\t%rsp, %rbp":c':cs')
                     | "subq" `isInfixOf` c' && "%rsp" `isInfixOf` c' ->
-                          (a:b:c':[]) ++ fst tStack ++ cs'_body      ++ snd tStack ++ cs'_next
+                          [a, b, c'] ++ fst tStack ++ cs'_body      ++ snd tStack ++ cs'_next
                     | otherwise ->
-                          (a:b:[])    ++ fst tStack ++ (c':cs'_body) ++ snd tStack ++ cs'_next
+                          [a, b]     ++ fst tStack ++ (c':cs'_body) ++ snd tStack ++ cs'_next
                     where  (cs'_body, cs'_next) = break (=="\tleave") cs'
                 cs' -> let (cs'_body, cs'_next) = break (\x -> x == "\tleave" || x == "\tret") cs'
                        in  fst tHeap ++ cs'_body ++ snd tHeap ++ cs'_next
         saveRegs code =
             let (h:fs) = splitWithFunction code
-            in  foldr (++) [] (h : map saveRegForAFunc fs)
+            in  concat (h : map saveRegForAFunc fs)
 
 
 reduceStackChange code
@@ -92,7 +92,7 @@ reduceStackChange code
           neg_ref = filter (\x -> "\t-"    `isInfixOf` x || " -"   `isInfixOf` x) ref
 
           reduceAllStack = reduce1 (\x -> "rsp" `isInfixOf` x || "rbp" `isInfixOf` x || "leave" `isInfixOf` x)
-          reduceSubRspAndLeave = reduce1 (\x -> ("sub" `isInfixOf` x && "rsp" `isInfixOf` x))
+          reduceSubRspAndLeave = reduce1 (\x -> "sub" `isInfixOf` x && "rsp" `isInfixOf` x)
 
 
 reduceUselessJmp = reduce2 f where
@@ -126,7 +126,7 @@ swapInst (c1:c2:c3:cs)
       && (not . isInfixOf b1) a2
       && (not . isInfixOf b2) a1
       && (not . isInfixOf b1) b2
-      && (not . isInfixOf b2) b1 = (c2 : c1 : c3 : swapInst cs)
+      && (not . isInfixOf b2) b1 = c2 : c1 : c3 : swapInst cs
     | otherwise = c1 : swapInst (c2:c3:cs)
     where
         (cmd1, a1, b1) = getOperandFromCode c1
@@ -207,14 +207,14 @@ mergeCalc c1 c2
         pos2  a = getGroupVal a !! 2
 
         merge1 a b = a ++ b
-        merge2 a b = let (x1:x2:x3:x4:[]) = getGroupVal b
+        merge2 a b = let [x1, x2, x3, x4] = getGroupVal b
                      in  lea x1 a x3 x4
         merge3 a b = init b ++ "," ++ a ++ ")"
-        mergeL a b = (fst $ break (==',') a) ++ (snd $ break (==',') b)
+        mergeL a b = takeWhile (/=',') a ++ dropWhile (/=',') b
 
 
 getOperandFromCode c = (getCommd c, a, b) where
     (a, b) = case splitOn ", " $ last $ splitOn "\t" c of
         (x:y:_) -> (x, y)
-        (x:[]) -> (x, "")
+        [x] -> (x, "")
         _ -> ("", "")

@@ -12,9 +12,9 @@ import Data.List.Utils
 import qualified Data.Map as Map
 
 
-optimize code = untilF cond func code
+optimize = untilF cond func
     where cond now bef = length now > length bef || now == bef
-          func         = ((\x -> untilNoChange instLower x) . swapInst . doGlobalOptimize . buildCFG)
+          func         = untilNoChange instLower . swapInst . doGlobalOptimize . buildCFG
 
 -- doLocalOptimize :: CFG -> CFG
 doGlobalOptimize cfg =
@@ -22,9 +22,9 @@ doGlobalOptimize cfg =
         (ids, bbs_org) = unzip $ Map.toList $ getBasicBlocks cfg
         fs = splitWithFunction bbs_org
     in
-        (++) (getHeader cfg) $ concat $ map globalOptimizeOnAFunction fs
+        (++) (getHeader cfg) $ concatMap globalOptimizeOnAFunction fs
     where
-        splitWithFunction bbs = foldr step [] bbs where
+        splitWithFunction = foldr step [] where
             step b z@(x:xs) = case getEntry b of
                 [] -> [b]:z
                 _  -> (b:x):xs
@@ -42,9 +42,9 @@ globalOptimizeOnAFunction bbs =
         fromTAC optimized_tac ids entries
     where
         optimizeOnce tacs ids entries =
-            let copy_prog  = map (\x -> untilNoChange (constFolding . copyPropagation) x) tacs
+            let copy_prog  = map (untilNoChange (constFolding . copyPropagation)) tacs
                 dead_code1 = globalDeadCodeElim copy_prog ids entries
-                expr_elim  = map (\x -> untilNoChange (constFolding . commonSubexprElim) x) dead_code1
+                expr_elim  = map (untilNoChange (constFolding . commonSubexprElim)) dead_code1
                 dead_code2 = globalDeadCodeElim expr_elim ids entries
                 gcopy_prop = globalConstCopyPropagation dead_code2 ids entries
             in  gcopy_prop
@@ -62,22 +62,22 @@ globalDeadCodeElimOnce tacs ids entries =
                 in  doElimination tac liv) `map` ids
     where
         id_tac = Map.fromList $ zip ids tacs
-        doElimination tac liv = elim tac liv where
+        doElimination = elim where
             elim (x@(a, b):tr) (l:lr)
-                | isReg a = if isLiv a l then x : (elim tr lr) else elim tr lr
-                | a == "cltd" || a == "cltq" || a == "cqto" = if isLiv' "%rax" l then x : (elim tr lr) else elim tr lr
-                | "set" `isPrefixOf` a = if isLiv b l then x : (elim tr lr) else elim tr lr
-                | otherwise = x : (elim tr lr)
+                | isReg a = if isLiv a l then x : elim tr lr else elim tr lr
+                | a == "cltd" || a == "cltq" || a == "cqto" = if isLiv' "%rax" l then x : elim tr lr else elim tr lr
+                | "set" `isPrefixOf` a = if isLiv b l then x : elim tr lr else elim tr lr
+                | otherwise = x : elim tr lr
             elim _ _ = []
 
         isLiv r liv  = let fixed_r = rmRegIndex r in
             r `elem` liv || fixed_r `elem` liv
-        isLiv' r liv = r `elem` (map rmRegIndex liv)
+        isLiv' r liv = r `elem` map rmRegIndex liv
 
 
 globalConstCopyPropagation [] _ _ = []
 globalConstCopyPropagation tacs ids entries =
-        snd $ unzip $ Map.toList $ foldr forABlock (Map.fromList $ zip ids tacs) ids
+        map snd $ Map.toList $ foldr forABlock (Map.fromList $ zip ids tacs) ids
     where
         ud = "ud" -- undefiend
         nc = "nc" -- not const
@@ -112,11 +112,10 @@ globalConstCopyPropagation tacs ids entries =
                               func _ _ _ = []
 
                 -- update stat by tac of current basic block
-                buildStat init (id, tac)
-                    | otherwise =
-                          let l     = filter (\(ca, cb) -> rmRegIndex ca == rmRegIndex a) tac
-                              b'    = if null l then ud else snd $ last l
-                          in  meet init b'
+                buildStat init (id, tac) =
+                    let l  = filter (\(ca, cb) -> rmRegIndex ca == rmRegIndex a) tac
+                        b' = if null l then ud else snd $ last l
+                    in  meet init b'
 
                 -- update stat by stat of other basic block
                 updateStat id_stat = Map.fromList $ map (\id -> (,) id $ updateStat' id) ids where
@@ -124,7 +123,7 @@ globalConstCopyPropagation tacs ids entries =
                         let fs = map fst $ filter (\(i, e) -> id `elem` e) id_entry
                             st = map (\id -> snd $ getItem id id_stat) fs
                             (bef, aft) = getItem id id_stat
-                            bef' = foldr (\x z -> meet' x z) (if null st then ud else head st) st
+                            bef' = foldr meet' (if null st then ud else head st) st
                             aft' = buildStat bef' (id, getItem id id_tac)
                         in  (bef', aft')
                         where meet' a b = if a == ud || b == ud then ud else meet a b
@@ -136,8 +135,8 @@ globalConstCopyPropagation tacs ids entries =
                  | a == b  = a
 
 
-copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
-    cP (c:cs) res eq = cP cs ((doReplace c eq) : res) (update c eq)
+copyPropagation = untilNoChange (\x -> cP x [] Map.empty) where
+    cP (c:cs) res eq = cP cs (doReplace c eq : res) (update c eq)
     cP [] res _ = reverse res
 
     update c@(a, b) eq
@@ -146,7 +145,7 @@ copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
                         $ filter (\t -> notInTup "rax" t && notInTup "rip" t)
                         $ Map.toList eq
         | "set" `isPrefixOf` a =
-              Map.fromList $ filter (\t -> notInTup b t) $ Map.toList eq
+              Map.fromList $ filter (notInTup b) $ Map.toList eq
         | '%' `notElem` a = eq
         | isNotArith b = let res = Map.insert a b eq
                          in  if "rip" `isInfixOf` b && head b /= '*'
@@ -161,8 +160,8 @@ copyPropagation tac = untilNoChange (\x -> cP x [] Map.empty) tac where
         | otherwise = (a, doCopy b eq)
 
 
-commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
-    cE (c:cs) res eq = cE cs ((doReplace c eq) : res) (update c eq)
+commonSubexprElim = untilNoChange (\x -> cE x [] Map.empty) where
+    cE (c:cs) res eq = cE cs (doReplace c eq : res) (update c eq)
     cE [] res _ = reverse res
 
     update (a, b) eq
@@ -171,7 +170,7 @@ commonSubexprElim tac = untilNoChange (\x -> cE x [] Map.empty) tac where
                         $ filter (\t -> notInTup "rax" t && notInTup "rip" t)
                         $ Map.toList eq
         | "set" `isPrefixOf` a =
-              Map.fromList $ filter (\t -> notInTup b t) $ Map.toList eq
+              Map.fromList $ filter (notInTup b) $ Map.toList eq
         | '%' `notElem` b  || isLetter (head a) = eq
         | isReg a && isReg b = let res = Map.insert b a eq
                                in  if "rip" `isInfixOf` b && head b /= '*'
@@ -202,7 +201,7 @@ doCopy c eq = doCopy' c
             (a, "", _) -> case copy a eq of
                 Nothing ->
                     if isRegGroup a
-                    then let (h:val) = getGroupVal a in h ++ copyIntoG val [] ++ (tail $ snd $ break (==')') a)
+                    then let (h:val) = getGroupVal a in h ++ copyIntoG val [] ++ tail (dropWhile (/=')') a)
                     else a
                 Just  x -> x
             (a, b, op) -> doCopy' a ++ op ++ doCopy' b
@@ -215,21 +214,19 @@ doCopy c eq = doCopy' c
                                      Just  x -> let x' = mayCopy x (tail a) in Just $ '*':x'
                             else Nothing
                         Just  x -> Just $ mayCopy x a
-        mayCopy x y = if isSimple x
+        mayCopy x y = if isSimple x || isNotArith c
                       then x
-                      else if isNotArith c
-                           then x
-                           else y
+                      else y
 
 
-constFolding tac = untilNoChange foldOnce tac where
+constFolding = untilNoChange foldOnce where
     foldOnce tac =
-        let bk = break (\x -> 2 == (cnt '$' $ snd x )) tac
+        let bk = break (\x -> 2 == cnt '$' (snd x )) tac
             (h, (a, b):r) = bk -- this won't be evaluated when (snd bk) is empty
             (x, y, op) = getOperand (replace "$" "" b)
             (x', y') = (read x :: Int, read y :: Int)
             res x = (++) h $ (a, '$' : show x) : r
-            resj x l = if x then (++) h $ ("jmp", l) : (tail r) else h ++ (tail r)
+            resj x l = if x then (++) h $ ("jmp", l) : tail r else h ++ tail r
         in if null $ snd bk then tac else case op of
             "+" -> res $ x' + y'
             "-" -> res $ x' - y'

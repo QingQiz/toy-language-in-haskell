@@ -235,7 +235,7 @@ semaAStmt ct@(Continue p) sc st = case Map.lookup ".loop" st of
 
 -- check format string is boring, i don't want to do it...
 semaFormatStr :: Ast -> Maybe Ast
-semaFormatStr a = Just a
+semaFormatStr = Just
 
 
 semaExpr :: Ast -> String -> SymbolTable -> Maybe Ast

@@ -21,7 +21,7 @@ buildEnv ids tacs entries = unpack $ zipWith3 fix ids liv tacs where
     unpack x =
         let (ids, livs, tacs) = unzip3 x
             id_tac = Map.fromList $ zip ids tacs
-            livs'  = concat $ map tail livs
+            livs'  = concatMap tail livs
             -- livs'' = head $ map rmDupItem $ fixLocal $ concat livs
             -- a register who is read before write is a local variable
             static = map (\x -> removeWhere ("rbp" `isInfixOf`) $ if null x then [] else head x) livs
@@ -29,15 +29,13 @@ buildEnv ids tacs entries = unpack $ zipWith3 fix ids liv tacs where
             -- the last write of a local variable in a basic block shoule be pre-allocated
             func (id, sta) =
                 let ups  = map fst $ filter (\(id', entry) -> id `elem` entry) $ zip ids entries
-                    tacs = map (\id -> getItem id id_tac) ups
+                    tacs = map (`getItem` id_tac) ups
                     sta' = map rmRegIndex sta
                 in  concat [findLastWrite a b | a <- sta', b <- tacs]
                 where findLastWrite r tac =
                           let (a, b) = break (\(a, b) -> rmRegIndex a == r) $ reverse tac
-                          in  if null b
-                              then []
-                              else [fst $ head b]
-            static' = rmDupItem $ concat $ (++) static $ map func $ zip ids static
+                          in  [fst $ head b | not $ null b]
+            static' = rmDupItem $ concat $ (++) static $ zipWith (curry func) ids static
         in  ((map rmDupItem $ fixLocal livs'), concat tacs, first livs, static')
 
     first (l:ls) = if null l then first ls else head l
@@ -66,13 +64,13 @@ buildEnv ids tacs entries = unpack $ zipWith3 fix ids liv tacs where
                 findFirst' r (l:ls) n = if r `elem` l then n else findFirst' r ls (n + 1)
                 findFirst' r _ _ = error $ "could not find " ++ r ++ " in" ++ show liv
 
-            findLast  r liv = (length liv) - 1 - findFirst r (reverse liv)
+            findLast  r liv = length liv - 1 - findFirst r (reverse liv)
 
             step x liv = let b = findFirst x liv
                              e = findLast  x liv
                          in  if b /= e
                              then let (l, m, r) = splitAt3 (b + 1) e liv in
-                                      l ++ (map (x:) m) ++ r
+                                      l ++ map (x:) m ++ r
                              else liv
 
 
@@ -84,7 +82,7 @@ buildAllocaInit tac params static =
                 | otherwise   = findIdx t (n + 1)
             findIdx [] _   = []
             findReg (i:is) | i >= 0 = let (a, _) = tac !! i in a : findReg is
-            findReg (i:is) | otherwise = findReg is
+                           | otherwise = findReg is
             findReg []     = []
         ret_val   = findReg $ findIdx tac 0 where
             findIdx ((a, b):t) n
@@ -102,19 +100,17 @@ buildAllocaInit tac params static =
                 | '/' `elem` b = a : findReg t
                 | otherwise = findReg t
             findReg [] = []
-        g_vars    = filter (\x -> "rip" `isInfixOf` x)
-                    $ concat
-                    $ map (\(a, b) -> getRegs a ++ getRegs b) tac
-        fc_ret    = filter (\x -> "`fc" `isInfixOf` x)
-                    $ concat
-                    $ map (\(a, b) -> getRegs a ++ getRegs b) tac
+        g_vars    = filter ("rip" `isInfixOf`)
+                    $ concatMap (\(a, b) -> getRegs a ++ getRegs b) tac
+        fc_ret    = filter ("`fc" `isInfixOf`)
+                    $ concatMap (\(a, b) -> getRegs a ++ getRegs b) tac
         final     = params ++ func_call ++ ret_val ++ g_vars ++ fc_ret ++ static ++ div
     in  Map.fromList $ zip final $ map fixRegIndex final
     where fixRegIndex r = let r' = rmRegIndex r
                           in  if isDigit $ last $ init r' then init r' else r'
 
 
-registerRealloca tacs ids entries = (func tac 0 alloc_init [] [] [])
+registerRealloca tacs ids entries = func tac 0 alloc_init [] [] []
     where
         (liv, tac, params, static) = buildEnv ids tacs entries
 
@@ -134,7 +130,7 @@ registerRealloca tacs ids entries = (func tac 0 alloc_init [] [] [])
             let valid     = filter (\(a, b) -> a `elem` l) $ Map.toList alloc
                 reg_using = map snd valid
                 reg_all   = map (!!0) registers
-            in  filter (\x -> x `notElem` reg_using) reg_all
+            in  filter (`notElem` reg_using) reg_all
 
         allocaAStep' t rs li alloc =
             let
@@ -152,7 +148,7 @@ registerRealloca tacs ids entries = (func tac 0 alloc_init [] [] [])
                 tryAlloc r alloc  = case Map.lookup r alloc of
                     Nothing
                         | isRegGroup r && not ("rbp" `isInfixOf` r) ->
-                              let (_:v:[]) = getGroupVal r
+                              let [_, v] = getGroupVal r
                               in  tryAlloc v alloc
                         | otherwise -> doAlloca r (reverse $ regFree l alloc) alloc
                     Just  x -> (alloc, Nothing)
@@ -171,12 +167,12 @@ registerRealloca tacs ids entries = (func tac 0 alloc_init [] [] [])
                 -- return (alloc', spill_out)
                 spillOut regs alloc =
                     let
-                        (a, b) = head $ snd $ break (\(a, b) -> a `notElem` regs) $ Map.toList alloc
+                        (a, b) = head $ dropWhile (\(a, b) -> a `elem` regs) $ Map.toList alloc
                         alloc' = case Map.lookup "spill" alloc of
                                      Nothing -> Map.insert "spill" "0" $ Map.insert a "spill@0" alloc
                                      Just  x -> let l  = splitOn "," x
                                                     l' = map read l
-                                                    i  = show $ head $ snd $ break (\x -> x `notElem` l') [0..]
+                                                    i  = show $ head $ dropWhile (`elem` l') [0..]
                                                     sp = intercalate "," (i:l)
                                                 in  Map.insert "spill" sp $ Map.insert a ("spill@" ++ i) alloc
                     in (alloc', (a, getItem a alloc'))

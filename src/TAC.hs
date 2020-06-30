@@ -106,10 +106,10 @@ fromTAC tacs ids entries =
             | isLabel a = a : []
             | isCmd a && null b = conn1 a : []
             | isCmd a = case getOperand b of
-                  (x, [], []) | a == "test"   -> conn3 "testq" x x : []
-                              | head x == '*' -> conn2 a (tail b) : []
-                              | otherwise     -> conn2 a b : []
-                  (x, y, o)   -> conn3 (getCmd o) y x : []
+                  (x, [], []) | a == "test"   -> [conn3 "testq" x x]
+                              | head x == '*' -> [conn2 a (tail b)]
+                              | otherwise     -> [conn2 a b]
+                  (x, y, o)   -> [conn3 (getCmd o) y x]
             | otherwise = case getOperand b of
                   (x, [], []) | x == a -> []
                               | isRegGroup x && isRegGroup a ->
@@ -119,10 +119,10 @@ fromTAC tacs ids entries =
                                         conn3 "movq" reg a :
                                         conn2 "popq" reg   :
                                         []
-                              | head x == '*' -> conn3 "movq" (tail x) a : []
-                              | head a == '*' -> conn3 "movq" x (tail a) : []
-                              | isRegGroup x || isRegGroup a -> conn3 "leaq" x a : []
-                              | otherwise -> conn3 "movq" x a : []
+                              | head x == '*' -> [conn3 "movq" (tail x) a]
+                              | head a == '*' -> [conn3 "movq" x (tail a)]
+                              | isRegGroup x || isRegGroup a -> [conn3 "leaq" x a]
+                              | otherwise -> [conn3 "movq" x a]
 
                   (x, y, o) | o == "+" && x == "$0" -> trans (a, y)
                             | o == "+" && y == "$0" -> trans (a, x)
@@ -130,16 +130,16 @@ fromTAC tacs ids entries =
                             | o == "*" && (x == "$0" || y == "$0") -> trans (a, "$0")
                             | o == "*" && x == "$1"  -> trans (a, y)
                             | o == "*" && y == "$1"  -> trans (a, x)
-                            | o == "*" && x == "$-1" && y == a -> conn2 "negq" y   : []
-                            | o == "*" && x == "$-1" && y /= a -> conn3 "movq" y a : conn2 "negq" a : []
-                            | o == "*" && y == "$-1" && x == a -> conn2 "negq" x   : []
-                            | o == "*" && y == "$-1" && x /= a -> conn3 "movq" x a : conn2 "negq" a : []
+                            | o == "*" && x == "$-1" && y == a -> [conn2 "negq" y]
+                            | o == "*" && x == "$-1" && y /= a -> [conn3 "movq" y a, conn2 "negq" a]
+                            | o == "*" && y == "$-1" && x == a -> [conn2 "negq" x]
+                            | o == "*" && y == "$-1" && x /= a -> [conn3 "movq" x a, conn2 "negq" a]
                             | o == "/" && x == "$0"  -> trans (a, "$0")
                             | o == "/" && y == "$1"  -> trans (a, x)
-                            | o == "/" && x == "%rax" -> conn1 "cqto" : conn2 "idivq" y : []
-                            | o == "/" && x /= "%rax" -> conn3 "movq" x "%rax" : conn1 "cqto" : conn2 "idivq" y : []
-                            | x == a -> conn3 (getCmd o) y a : []
-                            | y == a && (o == "*" || o == "+") -> conn3 (getCmd o) x a : []
+                            | o == "/" && x == "%rax" -> [conn1 "cqto", conn2 "idivq" y]
+                            | o == "/" && x /= "%rax" -> [conn3 "movq" x "%rax", conn1 "cqto", conn2 "idivq" y]
+                            | x == a -> [conn3 (getCmd o) y a]
+                            | y == a && (o == "*" || o == "+") -> [conn3 (getCmd o) x a]
                             | otherwise -> trans (a, x) ++ trans (a, a ++ o ++ y)
 
         getCmd op = case op of

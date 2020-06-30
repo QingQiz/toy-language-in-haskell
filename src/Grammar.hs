@@ -15,13 +15,13 @@ buildAst = parse program
 ident  = Identifier <!> id_parser where
     id_parser = (++)
         <$> (many space >> some (letter <?> char '_'))
-        <*> (many (letter <?> digit <?> char '_'))
+        <*> many (letter <?> digit <?> char '_')
 
 -- type
 pType = (strWithSpc "int" >> return TInt) <?> (strWithSpc "char" >> return TChar)
 
 -- char
-ch = Ch <!> (spcChar '\'' *> (satisfy $ \_ -> True) <* char '\'')
+ch = Ch <!> (spcChar '\'' *> satisfy (const True) <* char '\'')
 
 -- signed int , unsigned int
 int  = Number <!> (many space >> sInt)
@@ -125,13 +125,13 @@ program = Program <$> peekSC <*> const_desc <*> var_desc <*> (some func_def <* (
 const_desc = many (strWithSpc "const" >> const_def <* spcChar ';')
 
 const_def  = let pConstVal = pVal ConstDef in
-    ((pConstVal "int" TInt) <?> (pConstVal "char" TChar))
+    (pConstVal "int" TInt <?> pConstVal "char" TChar)
     <*> sepBy (spcChar ',') ((,) <$> ident <*> (spcChar '=' >> int <?> ch))
 
 -- variable reputation
 var_desc = many (var_def <* spcChar ';')
 
-var_def = (pVarVal "int" TInt) <?> (pVarVal "char" TChar)
+var_def = pVarVal "int" TInt <?> pVarVal "char" TChar
     <*> sepBy (spcChar ',') (array_def <?> ident)
     where
         array_def = Array <!> ident <*> (spcChar '[' >> uint <* spcChar ']')
@@ -145,9 +145,9 @@ func_def = let pFuncVal = pVal FuncDef in
     <*> (spcChar '{' >> comd_stmt <* spcChar '}')
 
 --  help functions
-pBinVal f a b = many space >> peek >>= (\pk -> f a >> return pk) >>= (\pk -> return (BinNode b pk))
+pBinVal f a b = many space >> peek >>= (\pk -> f a >> return pk) >>= (return . BinNode b )
 
-pVal vc s t = many space >> peek >>= (\f -> strWithSpc s >> return f) >>= (\f -> return $ vc t f)
+pVal vc s t = many space >> peek >>= (\f -> strWithSpc s >> return f) >>= (return . vc t)
 
 infixl 4 <!>
 a <!> b = a <$> (many space >> peek) <*> b

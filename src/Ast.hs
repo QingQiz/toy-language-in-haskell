@@ -60,20 +60,20 @@ pBreak    = Break (0,0)
 pContinue = Continue (0,0)
 pComd     = ComdStmt (0,0)
 pProgram  = Program
-pConst    = \t x -> ConstDef t (0,0) x
-pVar      = \t x -> VarDef t (0, 0) x
-pFunc     = \t a b c -> FuncDef t (0,0) a b c
+pConst t  = ConstDef t (0,0)
+pVar t    = VarDef t (0, 0)
+pFunc t   = FuncDef t (0,0)
 pFC       = FuncCall (0,0)
 pRet      = Ret (0,0)
 pRd       = Rd (0,0)
 pWt       = Wt (0,0)
 
-pBin      = \op a b -> BinNode op (0,0) a b
+pBin op   = BinNode op (0,0)
 pAdd      = pBin Add
 pSub      = pBin Sub
 pMul      = pBin Mul
 
-pUnary    = \op a -> UnaryNode op (0,0) a
+pUnary op = UnaryNode op (0,0)
 pNot      = pUnary Not
 pNeg      = pUnary Neg
 

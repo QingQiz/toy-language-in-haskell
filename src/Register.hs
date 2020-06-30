@@ -30,10 +30,10 @@ get_low_reg x = last $ get_reg_index x
 get_high_reg x = if last x == ')' || '`' `elem` x then x else head $ get_reg_index x
 
 get_free_reg xs = registers !! ((\(Just x)->x) $ elemIndex True
-    $ map (all (==False) . map (`isInfixOf` (concat xs))) registers) !! 0
+    $ map (all ((==False) . (`isInfixOf` concat xs))) registers) !! 0
 
 get_reg_offset :: String -> Int
-get_reg_offset = read . fst . break (=='(')
+get_reg_offset = read . takeWhile (/='(')
 
 --                variable register datasize
 type RegTable = Map String (String, Int)

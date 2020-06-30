@@ -20,7 +20,7 @@ cProgram (Program _ _ vds fds) = concat $ bind (cGlobalVarDef vds) (cFuncDefs fd
 
 
 cGlobalVarDef :: [Ast] -> ([String], RegTable)
-cGlobalVarDef defs = foldr step ([], empty_rgt) defs where
+cGlobalVarDef = foldr step ([], empty_rgt) where
     step (VarDef t _ xs) (l, rgt) =
         let
             rst = case t of
@@ -91,17 +91,17 @@ cLocalVar vds rgt =
         offset :: [Int]
         offset = map (get_reg_offset . head)
             $ filter (not . null)
-            $ map (fst . span ("(%rbp)" `isSuffixOf`) . tails)
+            $ map (takeWhile ("(%rbp)" `isSuffixOf`) . tails)
             $ map (\(_, (b,_))->b) $ Map.toList rgt
 
-        int_var = map trans $ concat $ map take_name [x | x <- vds, is_int x]
-        chr_var = map trans $ concat $ map take_name [x | x <- vds, not $ is_int x]
+        int_var = map trans $ concatMap take_name [x | x <- vds, is_int x]
+        chr_var = map trans $ concatMap take_name [x | x <- vds, not $ is_int x]
 
         int_rgt = for_siz 8 int_var (if null offset then 0 else minimum offset) []
         chr_rgt = for_siz 1 chr_var (fst int_rgt) []
 
-        regs = fst . unzip . snd . unzip . Map.toList . snd
-        clr_var = concat $ map (conn_inst "movq" "$0") $ (regs int_rgt) ++ (regs chr_rgt)
+        regs = map (fst . snd) . Map.toList . snd
+        clr_var = concatMap (conn_inst "movq" "$0") $ regs int_rgt ++ regs chr_rgt
     in
         (clr_var, Map.union (Map.union (snd int_rgt) (snd chr_rgt)) rgt, (abs $ fst chr_rgt - 15) `div` 16 * 16)
     where
@@ -111,7 +111,7 @@ cLocalVar vds rgt =
         trans (Array _ (Identifier _ i) (Number _ n)) = (i, n)
         trans (Identifier _ i) = (i, 1)
 
-        take_name = \(VarDef _ _ n) -> n
+        take_name (VarDef _ _ n) = n
 
         for_siz siz' ((name, len):xs) oft res =
             for_siz siz xs (oft - siz - len * siz) $ (name, ((show $ oft - len * siz) ++ "(%rbp)", siz')) : res
@@ -120,7 +120,7 @@ cLocalVar vds rgt =
 
 
 cStmtList :: Ast -> RegTable -> ([String], RegTable)
-cStmtList (StmtList _ sl) rgt = cStmts sl rgt where
+cStmtList (StmtList _ sl) = cStmts sl where
     cStmts (sl:sls) rgt = bind (cAStmt sl rgt) (cStmts sls)
     cStmts [] rgt = ([], rgt)
 
@@ -256,7 +256,7 @@ cAStmt (Assign _ (Array _ (Identifier _ i) ei) ev) rgt =
         calc_addr = conn_inst "leaq" nam "%rbx"         -- rbx = addr base
                      ++ conn_inst "addq" "%rax" "%rbx"  -- rbx = rbx + addr offset
 
-        inst_mov = \x -> conn_inst "movq" x "(%rbx)"
+        inst_mov x = conn_inst "movq" x "(%rbx)"
     in
         (case ev of
             Number _ n -> calc_offset ++ calc_addr ++ inst_mov ('$' : show n)

@@ -10,7 +10,8 @@ import qualified Data.Set as Set
 untilF cnd f x = until' cnd f (f x) x where
     until' cnd f x x' = if cnd x x' then x' else until' cnd f (f x) x
 
-untilNoChange f x = untilF (==) f x
+untilNoChange :: Eq a => (a -> a) -> a -> a
+untilNoChange = untilF (==)
 
 
 conn_cmd  cmd     = ['\t':cmd]
@@ -29,12 +30,12 @@ getItem a m = case Map.lookup a m of
     Just x -> x
     _      -> error $ "\n" ++ show a ++ " not in " ++ show m
 
-elemWhere f l = case snd $ break f l of
+elemWhere f l = case dropWhile (not . f) l of
     [] -> error $ "\nelem can not found" ++ " in " ++ show l
     x  -> head x
 
-removeWhere f l = filter (not . f) l
-removeItem x l = removeWhere (==x) l
+removeWhere f = filter (not . f)
+removeItem x = removeWhere (==x)
 
 rmDupItem l = Set.toList $ Set.fromList l
 
@@ -52,7 +53,7 @@ splitAt3 a b l =
 mergeInto Nothing l = l
 mergeInto (Just x) l = x : l
 
-first f x = head' $ snd $ break f x where head' (x:xs) = x
+first f x = head' $ dropWhile (not . f) x where head' (x:xs) = x
 
 splitWithFunction code = reverse $ map reverse $ foldl step [[]] code where
     step z@(x:xs) c = if head c `notElem` ".\t" then [c] : z else (c:x):xs
@@ -73,13 +74,13 @@ isNotRegGroup = not . isRegGroup
 isSimple c = isNotRegGroup c && isNotArith c
 isNotSimple = not . isSimple
 
-getGroupVal = init . concat . map (splitOn ")") . concat . map (splitOn "(") . splitOn ","
+getGroupVal = init . concatMap (splitOn ")") . concatMap (splitOn "(") . splitOn ","
 
 
 getRegs x = if not (isReg x) then [] else
     if isRegGroup x
     then let (_:vals) = getGroupVal x in
-         (:) x $ concat $ map getRegs vals
+         (:) x $ concatMap getRegs vals
     else if isSimple x
         then [x]
         else let (a, b, op) = getOperand x in
@@ -87,25 +88,26 @@ getRegs x = if not (isReg x) then [] else
 
 
 getOperand c =
-    let h = takeWhile (\x -> x `elem` "+-*/~$") c
+    let h = takeWhile (`elem` "+-*/~$") c
         c' = drop (length h) c
-    in case break (\x -> x `elem` "+-*/~") c' of
+    in case break (`elem` "+-*/~") c' of
         (a, "") -> (h ++ a, "", "")
-        (a, b ) -> (h ++ a, tail b, head b : [])
+        (a, b ) -> (h ++ a, tail b, [head b])
 
 
 getRegIndex :: String -> String
 getRegIndex = reverse . takeWhile isDigit . reverse
 
 
-rmRegIndex r = if not (isReg r) then r else
-    if isRegGroup r
-    then let (h:vals) = getGroupVal r in
-        h ++ "(" ++ intercalate "," (map rmRegIndex vals) ++ ")"
-    else if isSimple r
-        then reverse $ dropWhile isDigit $ reverse r
-        else let (a, b, op) =  getOperand r in
-            rmRegIndex a ++ op ++ rmRegIndex b
+rmRegIndex r
+    | not (isReg r) = r
+    | isRegGroup r =
+          let (h:vals) = getGroupVal r
+          in  h ++ "(" ++ intercalate "," (map rmRegIndex vals) ++ ")"
+    | isSimple r = reverse $ dropWhile isDigit $ reverse r
+    | otherwise =
+          let (a, b, op) =  getOperand r
+          in  rmRegIndex a ++ op ++ rmRegIndex b
 
 isArith r = case getOperand r of
     (a, "", "") -> False
