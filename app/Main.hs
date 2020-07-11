@@ -14,7 +14,7 @@ import System.Exit
 import System.Environment
 
 
-put = putStrLn . unlines
+put f = writeFile f . unlines
 
 getAst' (Just a) = a
 getAst' Nothing = error "Semantic error"
@@ -23,8 +23,8 @@ run is_o (fn:xs) = do
     s <- readFile fn
     case buildAst s of
         Right a -> if is_o
-                   then put $ finalDash $ optimize $ runCodeGen $ getAst' $ runSema a
-                   else put $ finalDash $ runCodeGen $ getAst' $ runSema a
+                   then put (fn ++ ".s") $ finalDash $ optimize $ runCodeGen $ getAst' $ runSema a
+                   else put (fn ++ ".s") $ finalDash $ runCodeGen $ getAst' $ runSema a
         a -> putErr a
 
 main :: IO ()
