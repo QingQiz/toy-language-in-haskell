@@ -11,7 +11,7 @@ import Data.List.Utils
 finalDash code =
     let
         reg_sav = saveToHeap $ take 7 $ drop 1 $ map (!!0) registers
-        heap_saver = map (\x -> "\t.comm\t." ++ tail x ++ ",8") (map (!!0) registers)
+        heap_saver = map ((\x -> "\t.comm\t." ++ tail x ++ ",8") . (!!0)) registers
         func_print = ["\t.globl\tprint"]
             ++ conn_lab    "print"
             ++ conn_inst_s "pushq" "%rbp"
@@ -173,7 +173,7 @@ mergeCalc c1 c2
     | b1 == b2 && cmd1 == "leaq" && lack1 a1 && cmd2 == "addq" && isConst a2 =
           conn_inst "leaq" (merge1 (tail a2) a1) b1
     -- lea (_), %r
-    -- sub $2, %r          -> lea 2(_), %r
+    -- sub $2, %r          -> lea -2(_), %r
     | b1 == b2 && cmd1 == "leaq" && lack1 a1 && cmd2 == "subq" && isConst a2 =
           conn_inst "leaq" (merge1 (negConst a2) a1) b1
     -- lea x(%s), %r

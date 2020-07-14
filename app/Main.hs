@@ -1,16 +1,12 @@
 module Main where
 
-import Ast
-import CFG
 import Parser
 import Grammar
 import CodeGen
 import Semantic
-import Functions
 import Optimizer
 import PeepHole
 
-import System.Exit
 import System.Environment
 
 

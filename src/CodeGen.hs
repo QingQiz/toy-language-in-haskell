@@ -7,7 +7,6 @@ import Functions
 import Data.Char
 import Data.List
 import Data.List.Utils
-import Data.List.Split
 import qualified Data.Map as Map
 
 runCodeGen = cProgram
@@ -251,7 +250,7 @@ cAStmt (Assign _ (Array _ (Identifier _ i) ei) ev) rgt =
         calc_offset = case ei of
             Number _ n -> conn_inst "movq" ('$' : show (n * 8)) "%rax"
             _ -> expri ++ (if regi == "%rax" then [] else conn_inst "movq" regi "%rax")
-                       ++ (conn_inst "imulq" "$8" "%rax")
+                       ++ conn_inst "imulq" "$8" "%rax"
 
         calc_addr = conn_inst "leaq" nam "%rbx"         -- rbx = addr base
                      ++ conn_inst "addq" "%rax" "%rbx"  -- rbx = rbx + addr offset

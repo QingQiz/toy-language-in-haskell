@@ -148,8 +148,9 @@ registerRealloca tacs ids entries = func tac 0 alloc_init [] [] []
                 tryAlloc r alloc  = case Map.lookup r alloc of
                     Nothing
                         | isRegGroup r && not ("rbp" `isInfixOf` r) ->
-                              let [_, v] = getGroupVal r
-                              in  tryAlloc v alloc
+                              let (_:vs) = getGroupVal r
+                                  -- FIXME spill out was droped
+                              in  (foldr (\x z -> fst $ tryAlloc x z) alloc vs, Nothing)
                         | otherwise -> doAlloca r (reverse $ regFree l alloc) alloc
                     Just  x -> (alloc, Nothing)
                     where

@@ -3,12 +3,11 @@ module Optimizer where
 import TAC
 import CFG
 import Livness
-import Functions
 import PeepHole
+import Functions
 
 import Data.Char
 import Data.List
-import Data.List.Utils
 import qualified Data.Map as Map
 
 
@@ -223,7 +222,7 @@ constFolding = untilNoChange foldOnce where
     foldOnce tac =
         let bk = break (\x -> 2 == cnt '$' (snd x )) tac
             (h, (a, b):r) = bk -- this won't be evaluated when (snd bk) is empty
-            (x, y, op) = getOperand (replace "$" "" b)
+            (x, y, op) = getOperand (filter (/='$') b)
             (x', y') = (read x :: Int, read y :: Int)
             res x = (++) h $ (a, '$' : show x) : r
             resj x l = if x then (++) h $ ("jmp", l) : tail r else h ++ tail r

@@ -118,3 +118,5 @@ isCommd c c' = ("\t" ++ c) `isPrefixOf` c' || c `isPrefixOf` c'
 
 getCommd = head . tail . splitOn "\t"
 getCommdTarget = last . splitOn "\t"
+
+fixAddr r = if head r == '*' then tail r else r

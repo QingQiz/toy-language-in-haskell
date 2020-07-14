@@ -58,7 +58,7 @@ toTAC code = toTAC' code [] Map.empty where
             "t" -> (("test", fixl a), m)
             "n" -> trans (head $ conn_inst "imulq" "$-1" a) "*" m
             "=" -> let r = fixr b in ((fst r, fixl a), snd r)
-            "l" -> let r = fixr b in ((fst r, tail $ fixl a), snd r)
+            "l" -> let r = fixr b in ((fst r, fixAddr $ fixl a), snd r)
             "/" -> let r = fixr b ; b = "%rax" in
                 ((fst r, fixl b ++ op ++ fixl a), snd r)
             "~" -> (("cmp", fixl b ++ op ++ fixl a), m)
@@ -107,21 +107,15 @@ fromTAC tacs ids entries =
             | isCmd a && null b = conn1 a : []
             | isCmd a = case getOperand b of
                   (x, [], []) | a == "test"   -> [conn3 "testq" x x]
-                              | head x == '*' -> [conn2 a (tail b)]
                               | otherwise     -> [conn2 a b]
                   (x, y, o)   -> [conn3 (getCmd o) y x]
             | otherwise = case getOperand b of
                   (x, [], []) | x == a -> []
                               | isRegGroup x && isRegGroup a ->
                                     let reg = last $ getGroupVal x
-                                    in  conn2 "pushq" reg  :
-                                        conn3 "movq" x reg :
-                                        conn3 "movq" reg a :
-                                        conn2 "popq" reg   :
-                                        []
-                              | head x == '*' -> [conn3 "movq" (tail x) a]
-                              | head a == '*' -> [conn3 "movq" x (tail a)]
-                              | isRegGroup x || isRegGroup a -> [conn3 "leaq" x a]
+                                    in  [conn2 "pushq" reg] ++ trans (reg, x) ++ trans (a, reg) ++ [conn2 "popq" reg]
+                              | head x == '*' -> [conn3 "movq" x a]
+                              | head x /= '*' && isRegGroup x  -> [conn3 "leaq" x a]
                               | otherwise -> [conn3 "movq" x a]
 
                   (x, y, o) | o == "+" && x == "$0" -> trans (a, y)
@@ -151,7 +145,7 @@ fromTAC tacs ids entries =
         isCmd = not . isReg
         isLabel = elem ':'
 
+        fixHead = fixAddr
         conn1 a     = "\t" ++ fixHead a
         conn2 a b   = "\t" ++ fixHead a ++ "\t" ++ fixHead b
         conn3 a b c = "\t" ++ fixHead a ++ "\t" ++ fixHead b ++ ", " ++ fixHead c
-        fixHead r = if head r == '*' then tail r else r
